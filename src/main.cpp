@@ -33,6 +33,8 @@
 #define VERSION 0123   // 5215 = 52th week of 2015
 
 // ****************************************************************************CONFIGURATION
+// Cell Type
+
 // Pack defines
   #define NUMBER_OF_BLOCK_MANAGERS 40
 
@@ -47,8 +49,10 @@
     //#define CHARGER_ANALOG_DAC2
     #define ANALOG_ON   5 // fully on voltage
     #define ANALOG_OFF  2 // fully off voltage 
-  // Elcon 72v CAN Bus Charger
+  // 72v CAN Bus Charger
+    //#define MYBLUESKY
 
+    
 // **************************************************************************** //
 //                ALL BASIC CONFIGURATIONS ARE DONE ABOVE                       //
 //      DO NOT EDIT ANYTHING BELOW UNLESS YOU KNOW WHAT YOU ARE DOING           //
@@ -67,13 +71,24 @@
 
 // ****************************************************************************APPLICATION SETUP
 #pragma region APP
+  // app states
+#define DK_SLEEP    0
+#define DK_PAUSE    1
+#define DK_CHARGE   2
+#define DK_DRIVE    3
+uint8_t dkMode = DK_SLEEP;  // default to sleep
 
-#define DK_SLEEPMODE   0
-#define PAUSEMODE   1
-#define CHARGEMODE  2
-#define DRIVEMODE   3
-#define FAULTSHUTDOWN 4
-uint8_t gMode = DK_SLEEPMODE;    // default to sleep
+  // fault states
+#define ERROR_NOFAULT         0
+#define ERROR_OVERTEMP        1
+#define ERROR_UNDERTEMP       2
+#define ERROR_OVERVOLT_BLOCK  3
+#define ERROR_OVERVOLT_CELL   4
+#define ERROR_UNDERVOLT_BLOCK 5
+#define ERROR_UNDERVOLT_CELL  6
+#define ERROR_DEADV_BLOCK     7
+#define ERROR_DEADV_CELL      8
+uint8_t  dkError = ERROR_NOFAULT; // default to no faults
 
 #pragma endregion APP
 
@@ -136,22 +151,6 @@ bool VerbosePrintBLOCKDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintSUPERDATA = PRINT;  // turn on (1) or off verbose prints for supervisor
 bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintCommsDATA = PRINT ;
-
-//declare gFaultMode types    // faults that may cause shutdown or current limit reduction
-uint8_t  gFaultMode = 0;    // default to no faults at wakeup
-const byte NOFAULT = 0;     // cleared fault
-const byte OVERTEMP = 1;
-const byte UNDERTEMP = 5;
-const byte OVERVOLT_BLOCK = 10;
-const byte OVERVOLT_CELL = 15;
-const byte UNDERVOLT_BLOCK = 20;
-const byte UNDERVOLT_CELL = 25;
-const byte DEADV_BLOCK = 30;
-const byte DEADV_CELL = 35;
-const byte FAULTMODE0 = 40;     // temporary... rename when have english names
-const byte FAULTMODE1 = 45;
-const byte FAULTMODE2 = 50;
-const byte FAULTMODE3 = 55;
 
 // comms vars
 uint16_t CommsFaults = 0;
@@ -648,7 +647,7 @@ void loop() {
   if (VerbosePrintSUPERDATA){
     Serial.print("Firmware Ver: ");  Serial.print(VERSION);
     Serial.print("  Server Address: ");  Serial.print(SERVER_ADDRESS);
-    Serial.print("  PS Mode: ");  Serial.println(gMode);
+    Serial.print("  PS Mode: ");  Serial.println(dkMode);
   }
   
   WatchdogReset();  // reset the watchdog timer (times out in 1 sec so make sure loop is under about 500-600msec)
@@ -910,7 +909,7 @@ throwaway_i:   ;
       Serial.print(" ICHG avg value: ");     Serial.println(datAvg, 2);
    }
    
-  if ((gMode != CHARGEMODE) && (gMode != DRIVEMODE)) // calibrate sensor when not charging or driving
+  if ((dkMode != DK_CHARGE) && (dkMode != DK_DRIVE)) // calibrate sensor when not charging or driving
   {
     if ((datAvg > (LEM_Offset-near0)) && (datAvg < LEM_Offset+near0)) LEM_Offset = datAvg;    // cal when close to 2.5V which is LEM offset at 0 amps
   }
@@ -1098,26 +1097,24 @@ throwaway_c:  ;
    
   relay_drive_state = OFF;   // default to relay off
   // Pack check for motor relay and cell check for motor relay
-      if ((Vpack > Vpack_HV_Run_Limit) || (Vpack < Vpack_Lo_Run_Limit))
-      {
-        if (Print_Flag) Serial.println(" Drive relay IS OFF because Vpack is too LOW or too HIGH");
+  if ((Vpack > Vpack_HV_Run_Limit) || (Vpack < Vpack_Lo_Run_Limit)){
+    if (Print_Flag) Serial.println(" Drive relay IS OFF because Vpack is too LOW or too HIGH");
+  }
+  else{
+    if((Vpack < (Vpack_HV_Run_Limit - HYSTERESIS)) && (Hist_Lowest_Vcell > Vcell_LVD_Spec)){ // check pack and cell specs
+      if ((digitalRead(INPUT_CHARGE_PIN) != 0) && (digitalRead(INPUT_KEYSWITCH_PIN) == 0)){
+        relay_drive_state = ON;   // if pack ok, and charger is off (or disconnected) turn on motor control
+        if (Print_Flag) Serial.println(" Drive relay IS ON because KEYSWITCH is ON AND CHARGE input is OFF ");
       }
-      else
-      {
-        if ((Vpack < (Vpack_HV_Run_Limit - HYSTERESIS)) && (Hist_Lowest_Vcell > Vcell_LVD_Spec)) // check pack and cell specs
-        {
-          if ((digitalRead(INPUT_CHARGE_PIN) != 0) && (digitalRead(INPUT_KEYSWITCH_PIN) == 0))
-          {
-            relay_drive_state = ON;   // if pack ok, and charger is off (or disconnected) turn on motor control
-            if (Print_Flag) Serial.println(" Drive relay IS ON because KEYSWITCH is ON AND CHARGE input is OFF ");
-          }
-          else if (Print_Flag) Serial.println(" Drive relay IS OFF because KEYSWITCH is OFF or CHARGE input is ON, but packV and cellV are within limits ");
-        }
-        else {
-          Serial.println(" Drive relay IS OFF because Vpack or Vcell is too LOW - SO CHARGE PACK ");
-          gFaultMode = UNDERVOLT_CELL ;         
-        }
+      else if(Print_Flag){
+        Serial.println(" Drive relay IS OFF because KEYSWITCH is OFF or CHARGE input is ON, but packV and cellV are within limits ");
       }
+    }
+    else{
+      Serial.println(" Drive relay IS OFF because Vpack or Vcell is too LOW - SO CHARGE PACK ");
+      dkError = ERROR_UNDERVOLT_CELL ;         
+    }
+  }
 
   // new 7/19/2019
   // Cell temperature tests - OVERTEMP and UNDERTEMP for both charging and discharging
@@ -1176,10 +1173,10 @@ throwaway_c:  ;
     }
 
   // if undervolt cell AND Comms timeout (= comms error), wait until no comms error to turn on Drive
-  if ((Disconnected_Block == YES) && (gFaultMode == UNDERVOLT_CELL)) {
-     if (gFaultMode == UNDERVOLT_CELL) relay_drive_state = OFF; 
+  if ((Disconnected_Block == YES) && (dkError == ERROR_UNDERVOLT_CELL)) {
+     if (dkError == ERROR_UNDERVOLT_CELL) relay_drive_state = OFF; 
        if (VerbosePrintSUPERDATA) Serial.println(" Drive relay is OFF because cell UNDERVOLT/Cell Disconnect ");
-     //if (gFaultMode == OVERVOLT_CELL) relay_charge_state = OFF; 
+     //if (dkError == OVERVOLT_CELL) relay_charge_state = OFF; 
   }
 
 
@@ -1190,10 +1187,10 @@ throwaway_c:  ;
   {
     digitalWrite(CHARGER_RELAY, HIGH);
       if (VerbosePrintSUPERDATA) Serial.println("Charger relay K1 is closed");
-    gMode = CHARGEMODE;
+    dkMode = DK_CHARGE;
   }
   else {
-    gMode = PAUSEMODE;
+    dkMode = DK_PAUSE;
     digitalWrite(CHARGER_RELAY, LOW);
       if (VerbosePrintSUPERDATA) Serial.println("Charger relay K1 is open");
   }
@@ -1204,7 +1201,7 @@ throwaway_c:  ;
   {
     digitalWrite(MTRCONTROL_RELAY, HIGH);
       if (VerbosePrintSUPERDATA) Serial.println(" Motor Relay K2 is closed");
-    gMode = DRIVEMODE;
+    dkMode = DK_DRIVE;
   }
   else {
     digitalWrite(MTRCONTROL_RELAY, LOW);
@@ -1236,7 +1233,7 @@ throwaway_c:  ;
     
     
   // init current pot
-  if (gMode != CHARGEMODE) gTempPot = STARTING_CHARGE_RATE;
+  if (dkMode != DK_CHARGE) gTempPot = STARTING_CHARGE_RATE;
   else //charge control fix Apr 2017
   {
     if ((gAmps > TargetI) && (gTempPot > 0)) gTempPot--;
