@@ -159,16 +159,23 @@ float  Hist_Lowest_Tcell;
 #define ADC_RESOLUTION (12)  // ADC resolution in bits, usable from 10-13 on this chip
 #define DAC_RESOLUTION (10)  // DAC resolution in bits, usable from 0-12 on this chip (same setup as PWM outputs)
 
-// Declare output pins -----------------------------------------------------------------------------------------------------------------------------------
-#define LIMP_OUTPUT_PIN     18
-// relays
-#define RELAYDR1_CHARGE_PIN 5
-#define RELAYDR2_DRIVE_PIN  6
+// ****************************************************************************DIGITAL IO SETUP
+#pragma region DIO
+// switch pins
+#define SW1_LEARN_BLKS_PIN  2
 // led pins
 #define LED1_RED_PIN        15
 #define LED1_GREEN_PIN      16
 #define LED2_RED_PIN        7
 #define LED2_GREEN_PIN      8
+// relay pins
+#define RELAYDR1_CHARGE_PIN 5
+#define RELAYDR2_DRIVE_PIN  6
+// user input pins
+#define INPUT_CHARGE_PIN    22
+#define INPUT_KEYSWITCH_PIN 23
+// other pins
+#define OUTPUT_LIMP_PIN     18
 // unused pins
 #define UNUSEDA12           A12
 #define UNUSEDA13           A13
@@ -182,21 +189,25 @@ float  Hist_Lowest_Tcell;
 #define UNUSEDA31           31
 #define UNUSEDA32           32
 #define UNUSEDA33           33
+// variables
+bool relay_charge_state = 0;
+bool relay_drive_state  = 0;
+// prototypes
+void init_DIO(void);
+void init_AIO(void);
+#pragma endregion DIO
 
-uint16_t Mrelay_Cycles = 0;    // Motor relay cycle counter
-uint16_t Crelay_Cycles = 0;    // Charger relay cycle counter
-
-// Analog DAC
-int DAC_OUT = A14; //use A14 as Analog Out (DAC)
-
-// pwm for op amp digital dacs (note 10 bits PWM same setup as Analog DAC output)
-const byte PWM1 = 20;
-const byte PWM2 = 21;
-const int PWMFREQ = 40000;
-//const byte FULLPWMRANGE = 144;
-//  const byte FULLPWMRANGE = 122;
+// ****************************************************************************ANALOG IO SETUP
+#pragma region AIO
+// fuel gauge
+#define DAC_OUT_FUEL_GAUGE A14
+// PWM Pins for op amp digital DACs (note: 10 bits PWM same setup as Analog DAC output)
+#define PWM1_DAC1 20
+#define PWM2_DAC2 21
+// variables
+const int pwm_freq = 40000;
 const int FULLPWMRANGE = 1000;
-
+#pragma endregion AIO
 
  // Lithium Cell temperature specifications - use "NTC thermistor muRata NCP18W104D computations from -40-60C in 5 deg steps.ods"
   #define BAT_TYPE_MJ1  (0) // 0 = LG MJ1 type -   //cell parameters for LG MH1 3200mah
@@ -217,8 +228,8 @@ const int FULLPWMRANGE = 1000;
 
   #ifdef VPACK_40S
     #define VPACKNOMINAL (VPACK_40S) 
-    //const byte LIMP_OUTPUT_PIN = 18;            // on off signal to motor control at 20% SOC
-    const byte CHARGER_CONTROL = PWM2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
+    //const byte OUTPUT_LIMP_PIN = 18;            // on off signal to motor control at 20% SOC
+    const byte CHARGER_CONTROL = PWM2_DAC2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
     const byte CHARGER_RELAY = RELAYDR1_CHARGE_PIN;
     const byte MTRCONTROL_RELAY = RELAYDR2_DRIVE_PIN;
     uint8_t No_Of_Cells = 40 ;  // 146V system for Kents Bug
@@ -227,8 +238,8 @@ const int FULLPWMRANGE = 1000;
 
    #ifdef VPACK_20S              // // define application vars here (this is FIDO)
     #define VPACKNOMINAL (VPACK_20S) 
-    //const byte LIMP_OUTPUT_PIN = 18;            // on off signal to motor control at 20% SOC
-    const byte CHARGER_CONTROL = PWM2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
+    //const byte OUTPUT_LIMP_PIN = 18;            // on off signal to motor control at 20% SOC
+    const byte CHARGER_CONTROL = PWM2_DAC2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
     const byte CHARGER_RELAY = RELAYDR1_CHARGE_PIN;
     const byte MTRCONTROL_RELAY = RELAYDR2_DRIVE_PIN;
     uint8_t No_Of_Cells = 20 ;  // 72V system for Fido etc
@@ -238,7 +249,7 @@ const int FULLPWMRANGE = 1000;
 
 
 // LEARN BLOCKS
-const byte LEARN_BLOCKS_IN = 2;       // input pin 2 - S1 Connect switch
+
 const byte LEARN_TIMEOUT = 2;       // learn mode timeout after 2 minutes after power up
 //uint8_t blockNum[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // the array of 10 blocks for FIDO, this will have to be user configurable
 uint8_t blockNum[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // Change for Kents Bug
@@ -284,13 +295,9 @@ uint16_t Undertemp_Cells_Charging ;
 uint16_t Undertemp_Cells_Discharging ;
 
 
-// Setup user inputs
-const byte CHARGE_INPUT = 22;     // Charger presence or absence
-const byte KEYSWITCH_INPUT = 23;    // Keyswitch on or off
 
-// Relay settings and vars
-bool ChargeRelay = 0;
-bool MtrControlRelay = 0;
+
+
 //const float VPACK_HI_CHG_LIMIT = 60.0;    // do not allow charger to raise pack > 4.20V cell x 20 cells = 84VDC
 // const float Vpack_HV_Run_Limit = 64.0; // Confirm with Jeb
 //   const float VPACK_LO_RUN_LIMIT = 52.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
@@ -381,7 +388,30 @@ void startup_early_hook() {
 }
 #endif
 
+/**************************************************************************/
+/*!
+	@brief  initialization of the digital IO of the microcontroller.
+*/
+/**************************************************************************/
 void init_DIO(){
+  // leds
+  pinMode(LED1_GREEN_PIN, OUTPUT);
+  pinMode(LED1_RED_PIN, OUTPUT);
+  pinMode(LED2_GREEN_PIN, OUTPUT);
+  pinMode(LED2_RED_PIN, OUTPUT);
+
+  // relays
+  pinMode(RELAYDR1_CHARGE_PIN, OUTPUT);
+  pinMode(RELAYDR2_DRIVE_PIN, OUTPUT);
+
+  // User inputs
+  pinMode(INPUT_CHARGE_PIN, INPUT);
+  pinMode(INPUT_KEYSWITCH_PIN, INPUT);
+  pinMode(SW1_LEARN_BLKS_PIN, INPUT);
+
+  // other
+  pinMode(OUTPUT_LIMP_PIN, OUTPUT);
+
   // Unused I/O make digital output for low impedance and EMI-resistance
   pinMode(A12, INPUT_PULLUP);
   pinMode(A13, INPUT_PULLUP);   
@@ -395,39 +425,37 @@ void init_DIO(){
   pinMode(UNUSEDA31, OUTPUT);   
   pinMode(UNUSEDA32, OUTPUT);   
   pinMode(UNUSEDA33, OUTPUT);
-
-  // Relays setup
-  pinMode(RELAYDR1_CHARGE_PIN, OUTPUT);      // enable digital output for turning on relays on board
-  pinMode(RELAYDR2_DRIVE_PIN, OUTPUT);      // enable digital output for turning on relays board
-  // pinMode(RELAYDR3,OUTPUT);       // enable digital output for turning on low shunt
-  // pinMode(RELAYDR4,OUTPUT);       // enable digital output for turning on high shunt
-
-  // LEDs
-  pinMode(LED1_GREEN_PIN, OUTPUT);     // enable digital output for turning on LED indicator
-  pinMode(LED1_RED_PIN, OUTPUT);       // enable digital output for turning on LED indicator
-  pinMode(LED2_GREEN_PIN, OUTPUT);     // enable digital output for turning on LED indicator
-  pinMode(LED2_RED_PIN, OUTPUT);       // enable digital output for turning on LED indicator
-
-  // PWM outputs
-  pinMode(PWM1, OUTPUT);          // enable PWM1
-  pinMode(PWM2, OUTPUT);          // enable PWM2
-
-  // User outputs
-  pinMode(LIMP_OUTPUT_PIN, OUTPUT);
-
-  // User inputs
-  pinMode(CHARGE_INPUT, INPUT);
-  pinMode(KEYSWITCH_INPUT, INPUT);
-  pinMode(LEARN_BLOCKS_IN, INPUT);
 }
 
-// =========================================================================================================== SETUP
-void setup() {    
+/**************************************************************************/
+/*!
+	@brief  initialization of the analog IO of the microcontroller.
+*/
+/**************************************************************************/
+void init_AIO(){
+  // PWM
+  pinMode(PWM1_DAC1, OUTPUT);
+  pinMode(PWM2_DAC2, OUTPUT);
+  // Teensy PWM runs at 23kHz, DAC value is 0 to 1023
+  analogWriteFrequency(PWM1_DAC1, pwm_freq); 
+  analogWriteResolution(DAC_RESOLUTION);
+
+  //analogReference(INTERNAL);  // set analog reference to internal ref (was Jun 2016)
+  analogReference(EXTERNAL);  // set analog reference to ext ref
+  analogReadRes(ADC_RESOLUTION);          // Teensy 3.0: set ADC resolution to this many bits
+}
+
+
+// **************************************************************************** APPLICATION
+void setup() {
+  // Setup Serial Comms
   Serial.begin(115200);
-  // delay(2000);   // Delay for comm window open
+  // delay(2000);
 
   // Setup the Digital IO
   init_DIO();
+  // Setup the Analog IO
+  init_AIO();
 
   // nRF24 2.4Mhz packet comms
   if (!manager.init())
@@ -437,9 +465,7 @@ void setup() {
   }
   else   Serial.println("Comms init success");
 
-  // PWM out
-  analogWriteFrequency(PWM1, PWMFREQ); // Teensy PWM runs at 23kHz
-  analogWriteResolution(DAC_RESOLUTION);  // DAC value 0 to 1023
+  
 
   // Lithium Cell voltage specifications
   if (Cell_Type == LG_MH1)  {  //cell parameters for LG MH1 3200mah
@@ -470,10 +496,7 @@ void setup() {
   Undertemp_Cells_Charging = UNDERTEMP_CELLS_CHARGING;
   Undertemp_Cells_Discharging = UNDERTEMP_CELLS_DISCHARGING;
 
-  // Analog setup
-  //analogReference(INTERNAL);  // set analog reference to internal ref (was Jun 2016)
-  analogReference(EXTERNAL);  // set analog reference to ext ref
-  analogReadRes(ADC_RESOLUTION);          // Teensy 3.0: set ADC resolution to this many bits
+ 
   pinMode(NTCambient, INPUT);      //
 
   analogWrite(CHARGER_CONTROL, 0);     // prog CHG current to 0
@@ -553,7 +576,7 @@ void setup() {
   
 
   // only turn LIMP mode off at power cycle 
-    digitalWrite(LIMP_OUTPUT_PIN, LOW);
+    digitalWrite(OUTPUT_LIMP_PIN, LOW);
     Serial.println("'Limp Mode'  is off because DK is being reset ");
 
 
@@ -653,7 +676,7 @@ void loop() {
 
   // Learn mode switch routine...check if learn == on or off
   //tempx ++;
-  tempx = tempx + digitalRead(LEARN_BLOCKS_IN);       // read the input pin
+  tempx = tempx + digitalRead(SW1_LEARN_BLKS_PIN);       // read the input pin
   if ((tempx > 0) && (hours == 0) && (minutes < LEARN_TIMEOUT))   // only allow learn blocks function in first 2 minutes after power applied
   {
     if (tempx > 5)
@@ -989,25 +1012,25 @@ throwaway_c:  ;
   int Vpack_HV_Run_Limit = Vpack_HVD * 1.2;  // Make high voltage run limit 10% higher than HVD (be careful at high voltage like Kent's bug)
   int Vpack_Lo_Run_Limit = Vpack_LVD;
 
-  ChargeRelay = OFF;      // default to relay off
+  relay_charge_state = OFF;      // default to relay off
   //  pack check for charger relay and cell check for charger relay
-  //      if ((Vpack > Vpack_HVD) || (Hist_Highest_Vcell > Vcell_HVD_Spec)) ChargeRelay = OFF;                  // if Vbat is too high, turn off charger
-  //      else if ((Hist_Highest_Vcell < (Vcell_HVD_Spec - HYSTERESIS)) && (Vpack < (Vpack_HVD - HYSTERESIS))) ChargeRelay = ON;  // else now is ok so turn back on
+  //      if ((Vpack > Vpack_HVD) || (Hist_Highest_Vcell > Vcell_HVD_Spec)) relay_charge_state = OFF;                  // if Vbat is too high, turn off charger
+  //      else if ((Hist_Highest_Vcell < (Vcell_HVD_Spec - HYSTERESIS)) && (Vpack < (Vpack_HVD - HYSTERESIS))) relay_charge_state = ON;  // else now is ok so turn back on
    
       if ((Hist_Highest_Vcell < (Vcell_HVD_Spec )) && (Vpack < (Vpack_HVD)))    //4.21 if LG
       {
-        if ((digitalRead(CHARGE_INPUT) == 0))
+        if ((digitalRead(INPUT_CHARGE_PIN) == 0))
         {
           Serial.print(" Charge input IS ON ");
           Serial.print(" Charge Timer =  ");  Serial.print(gCharge_Timer); Serial.println(" hrs");
     
-          if (gCharge_Timer == 0) ChargeRelay = ON;      // if Charge input is activated turn on Charge relay
+          if (gCharge_Timer == 0) relay_charge_state = ON;      // if Charge input is activated turn on Charge relay
           // open charge relays for one day if all Cells are in Vbalance
           if (Hist_Lowest_Vcell > Vcell_Balance)                                // 4.11 if LG
           {
             // shut down relay, start 1 day timer
             gCharge_Timer = 24;   //24 hours
-            ChargeRelay = OFF;
+            relay_charge_state = OFF;
             if (Print_Flag){
             Serial.println(" Charge relay now turns OFF for 24 hours = cells are ALL in balance ");
             }
@@ -1048,7 +1071,7 @@ throwaway_c:  ;
           }
       }
    
-  MtrControlRelay = OFF;   // default to relay off
+  relay_drive_state = OFF;   // default to relay off
   // Pack check for motor relay and cell check for motor relay
       if ((Vpack > Vpack_HV_Run_Limit) || (Vpack < Vpack_Lo_Run_Limit))
       {
@@ -1058,9 +1081,9 @@ throwaway_c:  ;
       {
         if ((Vpack < (Vpack_HV_Run_Limit - HYSTERESIS)) && (Hist_Lowest_Vcell > Vcell_LVD_Spec)) // check pack and cell specs
         {
-          if ((digitalRead(CHARGE_INPUT) != 0) && (digitalRead(KEYSWITCH_INPUT) == 0))
+          if ((digitalRead(INPUT_CHARGE_PIN) != 0) && (digitalRead(INPUT_KEYSWITCH_PIN) == 0))
           {
-            MtrControlRelay = ON;   // if pack ok, and charger is off (or disconnected) turn on motor control
+            relay_drive_state = ON;   // if pack ok, and charger is off (or disconnected) turn on motor control
             if (Print_Flag) Serial.println(" Drive relay IS ON because KEYSWITCH is ON AND CHARGE input is OFF ");
           }
           else if (Print_Flag) Serial.println(" Drive relay IS OFF because KEYSWITCH is OFF or CHARGE input is ON, but packV and cellV are within limits ");
@@ -1076,14 +1099,14 @@ throwaway_c:  ;
   // Overtemp first
 
   if (Hist_Highest_Tcell < Overtemp_Cells_Discharging) {  // lower counts are hotter
-      MtrControlRelay = OFF;               
+      relay_drive_state = OFF;               
       Serial.println(" ***** FAULT - Drive relay is OFF because cell OVERTEMP ");
       Serial.print(" ***** FAULT - Overtemp Cell temp counts = "); Serial.println(Hist_Highest_Tcell);
       Serial.print(" *** High temp limit = "); Serial.println(Overtemp_Cells_Discharging);
   }
   
   if (Hist_Highest_Tcell < Overtemp_Cells_Charging) {     // lower is hotter with NTC thermistor
-      ChargeRelay = OFF;
+      relay_charge_state = OFF;
       Serial.println(" ***** FAULT - Charge relay is OFF because cell OVERTEMP ");
       Serial.print(" ***** FAULT - Overtemp Cell temp counts = "); Serial.println(Hist_Highest_Tcell);
       Serial.print(" *** High temp limit = "); Serial.println(Overtemp_Cells_Charging);
@@ -1091,14 +1114,14 @@ throwaway_c:  ;
     
   // undertemp second
   if (Hist_Lowest_Tcell > Undertemp_Cells_Discharging) {
-     MtrControlRelay = OFF;               
+     relay_drive_state = OFF;               
      Serial.println(" ***** FAULT - Drive relay is OFF because cell UNDERTEMP ");
      Serial.print(" ***** FAULT - Undertemp Cell temp counts = "); Serial.print(Hist_Lowest_Tcell);
      Serial.print(" Low temp limit = "); Serial.println(Undertemp_Cells_Discharging);
     }
     
    if (Hist_Lowest_Tcell > Undertemp_Cells_Charging) {  // higher is colder with NTC
-     ChargeRelay = OFF;
+     relay_charge_state = OFF;
      Serial.println(" ***** FAULT - Charge relay is OFF because cell UNDERTEMP ");
      Serial.print(" ***** FAULT - Cell temp counts = "); Serial.print(Hist_Lowest_Tcell);
      Serial.print(" Low temp limit = "); Serial.println(Undertemp_Cells_Charging);
@@ -1113,8 +1136,8 @@ throwaway_c:  ;
   
   // cell temperature check, make limp mode => 60C, relay open at 63C
   //if (Hist_Highest_Tcell < NTC_63C) {
-  //    MtrControlRelay = OFF;               // cell >63C so turn off motor and charger relays
-  //    ChargeRelay = OFF;
+  //    relay_drive_state = OFF;               // cell >63C so turn off motor and charger relays
+  //    relay_charge_state = OFF;
   //    Serial.println(" ***** Charge AND Drive relay ARE OFF because cell OVERTEMP ");
   //}
   //else // cells not hot
@@ -1129,16 +1152,16 @@ throwaway_c:  ;
 
   // if undervolt cell AND Comms timeout (= comms error), wait until no comms error to turn on Drive
   if ((Disconnected_Block == YES) && (gFaultMode == UNDERVOLT_CELL)) {
-     if (gFaultMode == UNDERVOLT_CELL) MtrControlRelay = OFF; 
+     if (gFaultMode == UNDERVOLT_CELL) relay_drive_state = OFF; 
        if (VerbosePrintSUPERDATA) Serial.println(" Drive relay is OFF because cell UNDERVOLT/Cell Disconnect ");
-     //if (gFaultMode == OVERVOLT_CELL) ChargeRelay = OFF; 
+     //if (gFaultMode == OVERVOLT_CELL) relay_charge_state = OFF; 
   }
 
 
   //   electrically switch relays on/off
 
-  //if ((ChargeRelay == ON) && (digitalRead(CHARGE_INPUT == LOW)))    // Charger input goes low when charger is conn
-  if ((ChargeRelay == ON) )    // Charger input goes low when charger is conn
+  //if ((relay_charge_state == ON) && (digitalRead(INPUT_CHARGE_PIN == LOW)))    // Charger input goes low when charger is conn
+  if ((relay_charge_state == ON) )    // Charger input goes low when charger is conn
   {
     digitalWrite(CHARGER_RELAY, HIGH);
       if (VerbosePrintSUPERDATA) Serial.println("Charger relay K1 is closed");
@@ -1152,7 +1175,7 @@ throwaway_c:  ;
 
 
 
-  if ((MtrControlRelay == ON))   // keyswitch input goes lo when turned on
+  if ((relay_drive_state == ON))   // keyswitch input goes lo when turned on
   {
     digitalWrite(MTRCONTROL_RELAY, HIGH);
       if (VerbosePrintSUPERDATA) Serial.println(" Motor Relay K2 is closed");
@@ -1164,7 +1187,6 @@ throwaway_c:  ;
 
   }
 
-  //   Serial.print("CRelay cycles: ");    Serial.print(Crelay_Cycles);  Serial.print("  MRelay cycles: ");    Serial.print(Mrelay_Cycles);
 
   // control charger current with DAC2
   float TargetI;        //Amps
@@ -1197,7 +1219,7 @@ throwaway_c:  ;
     if ((gAmps < TargetI) && (gTempPot < FULL_CHARGE_RATE)) gTempPot++;
     // do nothing if they are equal
   }
-  analogWrite(CHARGER_CONTROL, gTempPot);     // PWM2 = DAC2 == CHG control 3-5V = 0-100%
+  analogWrite(CHARGER_CONTROL, gTempPot);     // PWM2_DAC2 = DAC2 == CHG control 3-5V = 0-100%
     //charge control fix Apr 2017
   
   if (Print_Flag){ Serial.print(" Charger control setting: ");    Serial.print(gTempPot);  Serial.println(" out of 1024: ");}
@@ -1214,11 +1236,11 @@ throwaway_c:  ;
 
 
   // Average SOCv over minutes (improvement) - Jul 12, 2017
-  if ((MtrControlRelay == OFF) && (ChargeRelay == OFF)) gSOCv = Vpack/2 ;           // both motor and charger relays are off == init SOC == Vpack
+  if ((relay_drive_state == OFF) && (relay_charge_state == OFF)) gSOCv = Vpack/2 ;           // both motor and charger relays are off == init SOC == Vpack
 
  
   // new 7/16/19
-//   if ((MtrControlRelay == OFF) && (ChargeRelay == OFF)) gSOCv = ((Vpack - Vpack_LVD)*2) ;           // both motor and charger relays are off == init SOC == Vpack
+//   if ((relay_drive_state == OFF) && (relay_charge_state == OFF)) gSOCv = ((Vpack - Vpack_LVD)*2) ;           // both motor and charger relays are off == init SOC == Vpack
    gSOCv = ((Vpack - Vpack_LVD)*2) ;   
    //gSOCv = (Vpack + (gSOCv * 999)) / 1000.0; // average for noise reduction 
    if (Vpack >= Vpack_LVD) TempV = gSOCv;    // pack is (basically) dead at 2.95V per cell
@@ -1249,14 +1271,14 @@ throwaway_c:  ;
   if (Vpack < Vpack_LVD) TempV = 0;   // change for kents bug
   
   if (TempV > MAX_PWM) TempV = MAX_PWM;    // 10 bit resolutioin - 1024 Max
-  analogWrite(PWM1, TempV);     // PWM1 ==DAC1 == SOC output
-  // analogWrite(PWM2, TempV);     // PWM2 = DAC2 == CHG control
+  analogWrite(PWM1_DAC1, TempV);     // PWM1_DAC1 ==DAC1 == SOC output
+  // analogWrite(PWM2_DAC2, TempV);     // PWM2_DAC2 = DAC2 == CHG control
  
   
   SOCv = (TempV / 1024) * 100;
   //if (VerbosePrintSUPERDATA)
   {
-    Serial.print(" PWM1 Counts (SOC): ");     Serial.print(TempV, 0);
+    Serial.print(" PWM1_DAC1 Counts (SOC): ");     Serial.print(TempV, 0);
     Serial.print(" SOC: ");     Serial.print(SOCv);  Serial.println ("%");
   }
     
@@ -1266,17 +1288,17 @@ throwaway_c:  ;
   //if ((TempV < 200) || (Hist_Highest_Tcell < NTC_60C))
   if ((TempV < 200) || (Hist_Highest_Tcell < NTC_57C))
   {
-    //digitalWrite(LIMP_OUTPUT_PIN, HIGH);
-    if (seconds > 10) digitalWrite(LIMP_OUTPUT_PIN, HIGH); //do well after startup to give time for vpack to settle
+    //digitalWrite(OUTPUT_LIMP_PIN, HIGH);
+    if (seconds > 10) digitalWrite(OUTPUT_LIMP_PIN, HIGH); //do well after startup to give time for vpack to settle
   }
-    else if (digitalRead(KEYSWITCH_INPUT) != 0)
+    else if (digitalRead(INPUT_KEYSWITCH_PIN) != 0)
   { 
-    digitalWrite(LIMP_OUTPUT_PIN, LOW);
+    digitalWrite(OUTPUT_LIMP_PIN, LOW);
   }
   if (Goodcomms){   // print data only when block data is in
   //if (VerbosePrintSUPERDATA)
     {
-      if (digitalRead(LIMP_OUTPUT_PIN) == 0) Serial.println("'Limp Mode' is off because of because SOC > 20% and cell temp < 60C");
+      if (digitalRead(OUTPUT_LIMP_PIN) == 0) Serial.println("'Limp Mode' is off because of because SOC > 20% and cell temp < 60C");
       else {    
         if (Hist_Highest_Tcell < NTC_57C) Serial.println("'Limp Mode'  is on because Cell temp is over 60C");
         else  Serial.println("'Limp Mode'  is on because SOC is at or under 20% - and keyswitch has not reset this condition");
@@ -1626,11 +1648,11 @@ const uint16_t THREE_BARS = 400;        // 22% PWM = (5 / 3.3) * 0.22 * 1024 = 3
 const uint16_t FOUR_BARS = 707 ;        // 26% PWM = (5 / 3.3) * 0.26 * 1024 = 404 (4 bars < 2.3V)
 
   // setup DAC output for KOSO Speedo Fuel gauge  (5/3.3 = compensates for PWM testing done with Funct gen)
-  if (SOCv >= 20) analogWrite(DAC_OUT, ONE_BARS);  // Need equiv of 14% PWM for 1 bars
-  else    analogWrite(DAC_OUT, (NO_BARS)); // No bars give *some* signal
-  if (SOCv >= 40) analogWrite(DAC_OUT, TWO_BARS);  // Need equiv of 18% PWM for 2 bars
-  if (SOCv >= 60) analogWrite(DAC_OUT, THREE_BARS);  // Need equiv of 22% PWM for 3 bars
-  if (SOCv >= 80) analogWrite(DAC_OUT, FOUR_BARS);  // Need equiv of 26% PWM for all 4 bars
+  if (SOCv >= 20) analogWrite(DAC_OUT_FUEL_GAUGE, ONE_BARS);  // Need equiv of 14% PWM for 1 bars
+  else    analogWrite(DAC_OUT_FUEL_GAUGE, (NO_BARS)); // No bars give *some* signal
+  if (SOCv >= 40) analogWrite(DAC_OUT_FUEL_GAUGE, TWO_BARS);  // Need equiv of 18% PWM for 2 bars
+  if (SOCv >= 60) analogWrite(DAC_OUT_FUEL_GAUGE, THREE_BARS);  // Need equiv of 22% PWM for 3 bars
+  if (SOCv >= 80) analogWrite(DAC_OUT_FUEL_GAUGE, FOUR_BARS);  // Need equiv of 26% PWM for all 4 bars
 
   // Block awareness: check to see which blocks are talking, over a 100 sec window
 
