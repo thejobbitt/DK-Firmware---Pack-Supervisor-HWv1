@@ -159,14 +159,30 @@ float  Hist_Lowest_Tcell;
 #define ADC_RESOLUTION (12)  // ADC resolution in bits, usable from 10-13 on this chip
 #define DAC_RESOLUTION (10)  // DAC resolution in bits, usable from 0-12 on this chip (same setup as PWM outputs)
 
-// Declare output pins
+// Declare output pins -----------------------------------------------------------------------------------------------------------------------------------
+#define LIMP_OUTPUT_PIN     18
 // relays
-const byte RELAYDR1 = 5;
-const byte RELAYDR2 = 6 ;
-//   const byte RELAYDR1 = 3;
-//   const byte RELAYDR2 = 4 ;
-//  const byte RELAYDR3 = 5;
-//  const byte RELAYDR4 = 6;
+#define RELAYDR1_CHARGE_PIN 5
+#define RELAYDR2_DRIVE_PIN  6
+// led pins
+#define LED1_RED_PIN        15
+#define LED1_GREEN_PIN      16
+#define LED2_RED_PIN        7
+#define LED2_GREEN_PIN      8
+// unused pins
+#define UNUSEDA12           A12
+#define UNUSEDA13           A13
+#define UNUSEDA24           24
+#define UNUSEDA25           25
+#define UNUSEDA26           26
+#define UNUSEDA27           27
+#define UNUSEDA28           28
+#define UNUSEDA29           29
+#define UNUSEDA30           30
+#define UNUSEDA31           31
+#define UNUSEDA32           32
+#define UNUSEDA33           33
+
 uint16_t Mrelay_Cycles = 0;    // Motor relay cycle counter
 uint16_t Crelay_Cycles = 0;    // Charger relay cycle counter
 
@@ -196,22 +212,25 @@ const int FULLPWMRANGE = 1000;
   #define VPACK_40S (146)        // LG - MJ1 - 40S pack voltage = 40*3.625=148V
   //#define VPACK_20S (74)         // use this for 20S pack voltage like FIDO
     
+
+
+
   #ifdef VPACK_40S
     #define VPACKNOMINAL (VPACK_40S) 
-    const byte LIMP_OUTPUT = 18;            // on off signal to motor control at 20% SOC
+    //const byte LIMP_OUTPUT_PIN = 18;            // on off signal to motor control at 20% SOC
     const byte CHARGER_CONTROL = PWM2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
-    const byte CHARGER_RELAY = RELAYDR1;
-    const byte MTRCONTROL_RELAY = RELAYDR2;
+    const byte CHARGER_RELAY = RELAYDR1_CHARGE_PIN;
+    const byte MTRCONTROL_RELAY = RELAYDR2_DRIVE_PIN;
     uint8_t No_Of_Cells = 40 ;  // 146V system for Kents Bug
     const  uint8_t NUMBER_OF_BLOCKS = (No_Of_Cells / 2);
     #endif // only other choice is 72V for now
 
    #ifdef VPACK_20S              // // define application vars here (this is FIDO)
     #define VPACKNOMINAL (VPACK_20S) 
-    const byte LIMP_OUTPUT = 18;            // on off signal to motor control at 20% SOC
+    //const byte LIMP_OUTPUT_PIN = 18;            // on off signal to motor control at 20% SOC
     const byte CHARGER_CONTROL = PWM2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
-    const byte CHARGER_RELAY = RELAYDR1;
-    const byte MTRCONTROL_RELAY = RELAYDR2;
+    const byte CHARGER_RELAY = RELAYDR1_CHARGE_PIN;
+    const byte MTRCONTROL_RELAY = RELAYDR2_DRIVE_PIN;
     uint8_t No_Of_Cells = 20 ;  // 72V system for Fido etc
     const  uint8_t NUMBER_OF_BLOCKS = (No_Of_Cells / 2);
    #endif
@@ -286,11 +305,7 @@ const float VPACK_HI_CHG_LIMIT = No_Of_Cells * Vcell_HVD_Spec;    // do not allo
 uint16_t gTempPot;       // current potentiomenter
 float gAmps;              // amps plus and minus through LEM sensor
 
-// leds
-const byte LED2red = 7;
-const byte LED2green = 8;
-const byte LED1red = 15;
-const byte LED1green = 16;
+
 
 // const int led = 13; //temp use of led on teensy    (ALSO used as NTC4 input)
 
@@ -310,22 +325,8 @@ const int IDISCHG = A5;     //port 19
 const int VBALANCE = A10;      // port 24 = POT
 const int ICHG = A11;      // port 25
 
-// take care of all unsed pins Jul 2016
-const int UNUSEDA12 = A12;      
-const int UNUSEDA13 = A13;      
-const uint8_t UNUSEDA24 = 24;  
-const uint8_t UNUSEDA25 = 25;  
-const uint8_t UNUSEDA26 = 26;  
-const uint8_t UNUSEDA27 = 27;  
-const uint8_t UNUSEDA28 = 28;  
-const uint8_t UNUSEDA29 = 29;  
-const uint8_t UNUSEDA30 = 30;  
-const uint8_t UNUSEDA31 = 31;  
-const uint8_t UNUSEDA32 = 32;  
-const uint8_t UNUSEDA33 = 33;  
+
     
-
-
 // declare global vars
 //const float EEPROM_CHG_SENSOR_OFFSET = 3094.8;  //3103;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
 const float EEPROM_CHG_SENSOR_OFFSET = 3094.77;  //3103;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
@@ -380,18 +381,11 @@ void startup_early_hook() {
 }
 #endif
 
-
-// =========================================================================================================== SETUP
-void setup() {    
-  Serial.begin(115200);
-
-  // delay(2000);   // Delay for comm window open
-
-
-  // Unused I/O make digital output for low impedance and EMI-resistant
-  pinMode(A12, INPUT_PULLUP);   // weak pullup for now
+void init_DIO(){
+  // Unused I/O make digital output for low impedance and EMI-resistance
+  pinMode(A12, INPUT_PULLUP);
   pinMode(A13, INPUT_PULLUP);   
-  pinMode(UNUSEDA24, OUTPUT);     // outputs default to low but doesn't matter
+  pinMode(UNUSEDA24, OUTPUT);
   pinMode(UNUSEDA25, OUTPUT);   
   pinMode(UNUSEDA26, OUTPUT);   
   pinMode(UNUSEDA27, OUTPUT);   
@@ -400,9 +394,40 @@ void setup() {
   pinMode(UNUSEDA30, OUTPUT);   
   pinMode(UNUSEDA31, OUTPUT);   
   pinMode(UNUSEDA32, OUTPUT);   
-  pinMode(UNUSEDA33, OUTPUT);   
+  pinMode(UNUSEDA33, OUTPUT);
 
+  // Relays setup
+  pinMode(RELAYDR1_CHARGE_PIN, OUTPUT);      // enable digital output for turning on relays on board
+  pinMode(RELAYDR2_DRIVE_PIN, OUTPUT);      // enable digital output for turning on relays board
+  // pinMode(RELAYDR3,OUTPUT);       // enable digital output for turning on low shunt
+  // pinMode(RELAYDR4,OUTPUT);       // enable digital output for turning on high shunt
 
+  // LEDs
+  pinMode(LED1_GREEN_PIN, OUTPUT);     // enable digital output for turning on LED indicator
+  pinMode(LED1_RED_PIN, OUTPUT);       // enable digital output for turning on LED indicator
+  pinMode(LED2_GREEN_PIN, OUTPUT);     // enable digital output for turning on LED indicator
+  pinMode(LED2_RED_PIN, OUTPUT);       // enable digital output for turning on LED indicator
+
+  // PWM outputs
+  pinMode(PWM1, OUTPUT);          // enable PWM1
+  pinMode(PWM2, OUTPUT);          // enable PWM2
+
+  // User outputs
+  pinMode(LIMP_OUTPUT_PIN, OUTPUT);
+
+  // User inputs
+  pinMode(CHARGE_INPUT, INPUT);
+  pinMode(KEYSWITCH_INPUT, INPUT);
+  pinMode(LEARN_BLOCKS_IN, INPUT);
+}
+
+// =========================================================================================================== SETUP
+void setup() {    
+  Serial.begin(115200);
+  // delay(2000);   // Delay for comm window open
+
+  // Setup the Digital IO
+  init_DIO();
 
   // nRF24 2.4Mhz packet comms
   if (!manager.init())
@@ -412,12 +437,9 @@ void setup() {
   }
   else   Serial.println("Comms init success");
 
-
   // PWM out
   analogWriteFrequency(PWM1, PWMFREQ); // Teensy PWM runs at 23kHz
   analogWriteResolution(DAC_RESOLUTION);  // DAC value 0 to 1023
-
-
 
   // Lithium Cell voltage specifications
   if (Cell_Type == LG_MH1)  {  //cell parameters for LG MH1 3200mah
@@ -448,36 +470,6 @@ void setup() {
   Undertemp_Cells_Charging = UNDERTEMP_CELLS_CHARGING;
   Undertemp_Cells_Discharging = UNDERTEMP_CELLS_DISCHARGING;
 
-
-
-  // Relays setup
-  pinMode(RELAYDR1, OUTPUT);      // enable digital output for turning on relays on board
-  pinMode(RELAYDR2, OUTPUT);      // enable digital output for turning on relays board
-  //    pinMode(RELAYDR3,OUTPUT);       // enable digital output for turning on low  shunt
-  //   pinMode(RELAYDR4,OUTPUT);       // enable digital output for turning on high shunt
-
-  // LEDs
-  pinMode(LED1green, OUTPUT);      // enable digital output for turning on LED indicator
-  pinMode(LED1red, OUTPUT);      // enable digital output for turning on LED indicator
-  pinMode(LED2green, OUTPUT);      // enable digital output for turning on LED indicator
-  pinMode(LED2red, OUTPUT);      // enable digital output for turning on LED indicator
-
-  // PWM outputs
-  pinMode(PWM1, OUTPUT);      // enable PWM1
-  pinMode(PWM2, OUTPUT);      // enable PWM2
-
-  // User outputs
-  pinMode(LIMP_OUTPUT, OUTPUT);      // enable Limp mode output drive
-
-  // User inputs
-  pinMode(CHARGE_INPUT, INPUT);
-  pinMode(KEYSWITCH_INPUT, INPUT);
-  pinMode(LEARN_BLOCKS_IN, INPUT);
-
-
-
-
-
   // Analog setup
   //analogReference(INTERNAL);  // set analog reference to internal ref (was Jun 2016)
   analogReference(EXTERNAL);  // set analog reference to ext ref
@@ -486,28 +478,26 @@ void setup() {
 
   analogWrite(CHARGER_CONTROL, 0);     // prog CHG current to 0
 
-
-
   Serial.println("1: Green LED1 ");
     WatchdogReset();  // reset the watchdog timer
 
-  digitalWrite(LED1green, HIGH);   delay(500);  // LED on for 1 second
+  digitalWrite(LED1_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
   Serial.println("1: then go RED ");
-  digitalWrite(LED1green, LOW);
+  digitalWrite(LED1_GREEN_PIN, LOW);
    WatchdogReset();  // reset the watchdog timer
- digitalWrite(LED1red, HIGH);   delay(500);  // LED on for 1 second
+ digitalWrite(LED1_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
   Serial.println("2: Green LED2");
   WatchdogReset();  // reset the watchdog timer
-  digitalWrite(LED2green, HIGH);   delay(500);  // LED on for 1 second
+  digitalWrite(LED2_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
   Serial.println("3: Now go RED ");
-  digitalWrite(LED2green, LOW);
+  digitalWrite(LED2_GREEN_PIN, LOW);
   WatchdogReset();  // reset the watchdog timer
-  digitalWrite(LED2red, HIGH);   delay(500);  // LED on for 1 second
+  digitalWrite(LED2_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
   // wait for slow human to get serial capture running
-  digitalWrite(LED1green, LOW); //leds all off
-  digitalWrite(LED1red, LOW);
-  digitalWrite(LED2green, LOW);
-  digitalWrite(LED2red, LOW);
+  digitalWrite(LED1_GREEN_PIN, LOW); //leds all off
+  digitalWrite(LED1_RED_PIN, LOW);
+  digitalWrite(LED2_GREEN_PIN, LOW);
+  digitalWrite(LED2_RED_PIN, LOW);
 
   // save all vars until blocks are awake and comms are established
   Highest_Vcell = Vcell_Nominal_Spec;        // load  vars with nominal values
@@ -563,11 +553,11 @@ void setup() {
   
 
   // only turn LIMP mode off at power cycle 
-    digitalWrite(LIMP_OUTPUT, LOW);
+    digitalWrite(LIMP_OUTPUT_PIN, LOW);
     Serial.println("'Limp Mode'  is off because DK is being reset ");
 
 
-} // ==== end setup() ===========
+}
 
 void WatchdogReset (void) {       // reset COP watchdog timer to 1.1 sec 
   noInterrupts(); 
@@ -800,25 +790,25 @@ void loop() {
 
   if (LEARNBLOCKS == ON)     // turn on RED leds
   {
-    digitalWrite(LED2red, HIGH);  //on
-    digitalWrite(LED1red, HIGH);  //on
+    digitalWrite(LED2_RED_PIN, HIGH);  //on
+    digitalWrite(LED1_RED_PIN, HIGH);  //on
   }
   else    // turn off red leds unle3ss
   {
     if (blockNum[0] == 0)
     {
-      digitalWrite(LED2red, HIGH);  // turn on LED2=RED if all Blocks not programmed
-      digitalWrite(LED1red, LOW);
+      digitalWrite(LED2_RED_PIN, HIGH);  // turn on LED2=RED if all Blocks not programmed
+      digitalWrite(LED1_RED_PIN, LOW);
     }
     else
     {
-      digitalWrite(LED2red, LOW);  //off
-      digitalWrite(LED1red, LOW);  //off
+      digitalWrite(LED2_RED_PIN, LOW);  //off
+      digitalWrite(LED1_RED_PIN, LOW);  //off
     }
   }
   // measure ambient NTC - start with all LEDs red. If NTC gets shorted, make them green
-  //          digitalWrite(LED1red,HIGH);
-  //          digitalWrite(LED2red,HIGH);
+  //          digitalWrite(LED1_RED_PIN,HIGH);
+  //          digitalWrite(LED2_RED_PIN,HIGH);
   float datSum = 0;  // reset our accumulated sum of input values to zero
   long n = 0;            // count of how many readings so far
   double x1 = 0;
@@ -935,7 +925,7 @@ throwaway_i:   ;
       }
       Serial.println ();
   }
-  digitalWrite(LED1green, HIGH);  //on
+  digitalWrite(LED1_GREEN_PIN, HIGH);  //on
   
   // read and scale Pack voltage input
   delay(10);
@@ -951,7 +941,7 @@ throwaway_i:   ;
 throwaway_c:  ;
   } //end loop
 
-  digitalWrite(LED1green, LOW);  //off
+  digitalWrite(LED1_GREEN_PIN, LOW);  //off
 
   datAvg = datSum / n;  // find the mean
 
@@ -1276,17 +1266,17 @@ throwaway_c:  ;
   //if ((TempV < 200) || (Hist_Highest_Tcell < NTC_60C))
   if ((TempV < 200) || (Hist_Highest_Tcell < NTC_57C))
   {
-    //digitalWrite(LIMP_OUTPUT, HIGH);
-    if (seconds > 10) digitalWrite(LIMP_OUTPUT, HIGH); //do well after startup to give time for vpack to settle
+    //digitalWrite(LIMP_OUTPUT_PIN, HIGH);
+    if (seconds > 10) digitalWrite(LIMP_OUTPUT_PIN, HIGH); //do well after startup to give time for vpack to settle
   }
     else if (digitalRead(KEYSWITCH_INPUT) != 0)
   { 
-    digitalWrite(LIMP_OUTPUT, LOW);
+    digitalWrite(LIMP_OUTPUT_PIN, LOW);
   }
   if (Goodcomms){   // print data only when block data is in
   //if (VerbosePrintSUPERDATA)
     {
-      if (digitalRead(LIMP_OUTPUT) == 0) Serial.println("'Limp Mode' is off because of because SOC > 20% and cell temp < 60C");
+      if (digitalRead(LIMP_OUTPUT_PIN) == 0) Serial.println("'Limp Mode' is off because of because SOC > 20% and cell temp < 60C");
       else {    
         if (Hist_Highest_Tcell < NTC_57C) Serial.println("'Limp Mode'  is on because Cell temp is over 60C");
         else  Serial.println("'Limp Mode'  is on because SOC is at or under 20% - and keyswitch has not reset this condition");
@@ -1464,8 +1454,8 @@ badcomm:
       if ((LEARNBLOCKS == ON))
       {
         uint16_t x = NUMBER_OF_BLOCKS;   // number of blocks (+ 1 for zero)
-        digitalWrite(LED2red, HIGH);  //on
-        digitalWrite(LED1red, HIGH);  //on
+        digitalWrite(LED2_RED_PIN, HIGH);  //on
+        digitalWrite(LED1_RED_PIN, HIGH);  //on
      
         while ( x > 0 )
         {
@@ -1556,8 +1546,8 @@ exitsaveblock:
 
 
   // end nRF24 2.4Mhz packet comms
-  digitalWrite(LED2green, LOW);  //off
-  digitalWrite(LED2red, LOW);  //off
+  digitalWrite(LED2_GREEN_PIN, LOW);  //off
+  digitalWrite(LED2_RED_PIN, LOW);  //off
 
 
   //once you have good comms with known blocks ...use that good data (until then use defaults from startup)
