@@ -32,18 +32,51 @@
 
 #define VERSION 0123   // 5215 = 52th week of 2015
 
+// ****************************************************************************CONFIGURATION
+// Pack defines
+  #define NUMBER_OF_BLOCK_MANAGERS 40
 
-// nRF24 2.4Mhz packet comms used from Radiohead library, specifically <nrf24_reliable_datagram_server.pde>
+// Define the radio
+  #define RF24
+  //#define SUBG
+
+// Define the charger
+  // No Control charger
+    #define CHARGER_ON_OFF
+  // Analog style 0 to 5v
+    //#define CHARGER_ANALOG_DAC2
+    #define ANALOG_ON   5 // fully on voltage
+    #define ANALOG_OFF  2 // fully off voltage 
+  // Elcon 72v CAN Bus Charger
+
+// **************************************************************************** //
+//                ALL BASIC CONFIGURATIONS ARE DONE ABOVE                       //
+//      DO NOT EDIT ANYTHING BELOW UNLESS YOU KNOW WHAT YOU ARE DOING           //
+// **************************************************************************** //
+
+// ****************************************************************************INCLUDES
 #include <Arduino.h>
 #include <RHReliableDatagram.h>     // https://github.com/andrewbierer/RadioString
-#include <RH_NRF24.h>               // https://github.com/PaulStoffregen/RadioHead
+#ifdef RF24
+  #include <RH_NRF24.h>               // https://github.com/PaulStoffregen/RadioHead
+#endif
 #include <SPI.h>                    // https://github.com/PaulStoffregen/SPI
 #include <EEPROM.h>                 // https://github.com/PaulStoffregen/EEPROM
 #include <elapsedMillis.h>          // https://github.com/pfeerick/elapsedMillis
 
 
-// Prototypes
-void WatchdogReset(void);
+// ****************************************************************************APPLICATION SETUP
+#pragma region APP
+
+#define DK_SLEEPMODE   0
+#define PAUSEMODE   1
+#define CHARGEMODE  2
+#define DRIVEMODE   3
+#define FAULTSHUTDOWN 4
+uint8_t gMode = DK_SLEEPMODE;    // default to sleep
+
+#pragma endregion APP
+
 void GetBlockData(void);
 
 // ---------SERVER ADDRESS History
@@ -104,20 +137,6 @@ bool VerbosePrintSUPERDATA = PRINT;  // turn on (1) or off verbose prints for su
 bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintCommsDATA = PRINT ;
 
-//declare gMode vars
-uint8_t   gMode = 0;    // default to slewep at wakeup
-const byte SLEEPMODE = 0;
-const byte PAUSEMODE = 5;
-const byte CHARGEMODE = 10;
-const byte DRIVEMODE = 15;
-const byte FAULTSHUTDOWN = 20;
-const byte MODE0 = 25;     // temporary rename when have english names
-const byte MODE1 = 30;
-const byte MODE2 = 35;
-const byte MODE3 = 40;
-const byte MODE4 = 45;
-
-
 //declare gFaultMode types    // faults that may cause shutdown or current limit reduction
 uint8_t  gFaultMode = 0;    // default to no faults at wakeup
 const byte NOFAULT = 0;     // cleared fault
@@ -158,25 +177,30 @@ float  Hist_Lowest_Tcell;
 #define SAMPLES (200)      // how many samples to use for ADC read - 200 seemed to work best   
 #define ADC_RESOLUTION (12)  // ADC resolution in bits, usable from 10-13 on this chip
 #define DAC_RESOLUTION (10)  // DAC resolution in bits, usable from 0-12 on this chip (same setup as PWM outputs)
+// ****************************************************************************WATCHDOG SETUP
+#pragma region WD
+  // prototypes
+void WatchdogReset(void);
+#pragma endregion WD
 
 // ****************************************************************************DIGITAL IO SETUP
 #pragma region DIO
-// switch pins
+  // switch pins
 #define SW1_LEARN_BLKS_PIN  2
-// led pins
+  // led pins
 #define LED1_RED_PIN        15
 #define LED1_GREEN_PIN      16
 #define LED2_RED_PIN        7
 #define LED2_GREEN_PIN      8
-// relay pins
+  // relay pins
 #define RELAYDR1_CHARGE_PIN 5
 #define RELAYDR2_DRIVE_PIN  6
-// user input pins
+  // user input pins
 #define INPUT_CHARGE_PIN    22
 #define INPUT_KEYSWITCH_PIN 23
-// other pins
+  // other pins
 #define OUTPUT_LIMP_PIN     18
-// unused pins
+  // unused pins
 #define UNUSEDA12           A12
 #define UNUSEDA13           A13
 #define UNUSEDA24           24
@@ -189,26 +213,33 @@ float  Hist_Lowest_Tcell;
 #define UNUSEDA31           31
 #define UNUSEDA32           32
 #define UNUSEDA33           33
-// variables
+  // variables
 bool relay_charge_state = 0;
 bool relay_drive_state  = 0;
-// prototypes
+  // prototypes
 void init_DIO(void);
 void init_AIO(void);
 #pragma endregion DIO
 
 // ****************************************************************************ANALOG IO SETUP
 #pragma region AIO
-// fuel gauge
+  // input pins
+#define PACK_VOLTAGE_PIN              A0  // Schematic(VSCALED-PACK), 1.4v at 100VDC, 2.4V at 170VDC
+#define SUPERVISOR_TEMP_PIN           A3  // Onboard supervisor NTC (previously NTCambient)
+#define CURRENT_SENSOR_CHARGE_PIN     A11 // Schematic(ICHG), PCB(CON8, CH)
+#define CURRENT_SENSOR_DISCHARGE_PIN  A5  // Schematic(IDISCHG), PCB(CON8, DIS)  
+#define VBALANCE                      A10 // Schematic(TP VBAL), Currently unused
+  // output pins
 #define DAC_OUT_FUEL_GAUGE A14
-// PWM Pins for op amp digital DACs (note: 10 bits PWM same setup as Analog DAC output)
+  // PWM Pins for op amp digital DACs (note: 10 bits PWM same setup as Analog DAC output)
 #define PWM1_DAC1 20
 #define PWM2_DAC2 21
-// variables
+  // variables
 const int pwm_freq = 40000;
 const int FULLPWMRANGE = 1000;
 #pragma endregion AIO
 
+// ****************************************************************************
  // Lithium Cell temperature specifications - use "NTC thermistor muRata NCP18W104D computations from -40-60C in 5 deg steps.ods"
   #define BAT_TYPE_MJ1  (0) // 0 = LG MJ1 type -   //cell parameters for LG MH1 3200mah
 
@@ -219,12 +250,8 @@ const int FULLPWMRANGE = 1000;
     const uint16_t UNDERTEMP_CELLS_DISCHARGING = 3475; // -20C
   #endif 
 
-  
   #define VPACK_40S (146)        // LG - MJ1 - 40S pack voltage = 40*3.625=148V
   //#define VPACK_20S (74)         // use this for 20S pack voltage like FIDO
-    
-
-
 
   #ifdef VPACK_40S
     #define VPACKNOMINAL (VPACK_40S) 
@@ -324,13 +351,7 @@ float gAmps;              // amps plus and minus through LEM sensor
   const byte CE = 9;
 */
 
-// Declare input pins
-const int VSCALEDPACK = A0;      // port 14
-const int NTCambient = A3;      // port 17
-const int TPA4NC = A4;      // port 18
-const int IDISCHG = A5;     //port 19
-const int VBALANCE = A10;      // port 24 = POT
-const int ICHG = A11;      // port 25
+
 
 
     
@@ -433,16 +454,20 @@ void init_DIO(){
 */
 /**************************************************************************/
 void init_AIO(){
-  // PWM
+  // inputs
+  pinMode(SUPERVISOR_TEMP_PIN, INPUT);
+  // outputs
   pinMode(PWM1_DAC1, OUTPUT);
   pinMode(PWM2_DAC2, OUTPUT);
-  // Teensy PWM runs at 23kHz, DAC value is 0 to 1023
+
+  // configure the ADC - Teensy PWM runs at 23kHz, DAC value is 0 to 1023
   analogWriteFrequency(PWM1_DAC1, pwm_freq); 
   analogWriteResolution(DAC_RESOLUTION);
 
   //analogReference(INTERNAL);  // set analog reference to internal ref (was Jun 2016)
   analogReference(EXTERNAL);  // set analog reference to ext ref
   analogReadRes(ADC_RESOLUTION);          // Teensy 3.0: set ADC resolution to this many bits
+
 }
 
 
@@ -497,7 +522,7 @@ void setup() {
   Undertemp_Cells_Discharging = UNDERTEMP_CELLS_DISCHARGING;
 
  
-  pinMode(NTCambient, INPUT);      //
+ 
 
   analogWrite(CHARGER_CONTROL, 0);     // prog CHG current to 0
 
@@ -837,7 +862,7 @@ void loop() {
   double x1 = 0;
 
   for (int i = 0; i < SAMPLES; i++) {
-    x1 = analogRead(NTCambient);
+    x1 = analogRead(SUPERVISOR_TEMP_PIN);
     if ((i < 10 ) || (i > 150)) goto throwaway_a;  // throw away the first 10 and last 50 samples
     datSum += x1;
     n++;
@@ -849,7 +874,7 @@ throwaway_a:  ;
   int Tambient = datAvg;      // save ambient
 
   if (Print_Flag){
-      Serial.print(NTCambient);  Serial.print(" :");
+      Serial.print(SUPERVISOR_TEMP_PIN);  Serial.print(" :");
       Serial.print("  NTC ambient avg value: ");     Serial.print(Tambient);  Serial.println ();
       if (datAvg < 100)
       {
@@ -866,7 +891,7 @@ throwaway_a:  ;
   uint8_t near0 = 15;  // near zero amps so cal sensor value
 
   for (int i = 0; i < SAMPLES; i++) {
-    x2 = analogRead(ICHG);
+    x2 = analogRead(CURRENT_SENSOR_CHARGE_PIN);
     if ((i < 10 ) || (i > 150)) goto throwaway_i;  // throw away the first 10 and last 50 samples
     datSum += x2;
     n++;
@@ -876,12 +901,12 @@ throwaway_i:   ;
   datAvg = datSum / n;  // find the mean
 
    if (Print_Flag){
-       Serial.print(ICHG);
+       Serial.print(CURRENT_SENSOR_CHARGE_PIN);
       if (datAvg < 50)
       {
         Serial.print("Ichg -> Error - Input is shorted or no signal ");
       }
-      Serial.print("Chan: "); Serial.print(ICHG);
+      Serial.print("Chan: "); Serial.print(CURRENT_SENSOR_CHARGE_PIN);
       Serial.print(" ICHG avg value: ");     Serial.println(datAvg, 2);
    }
    
@@ -933,14 +958,14 @@ throwaway_i:   ;
   double x3 = 0;
 
   for (int i = 0; i < SAMPLES; i++) {
-    x3 = analogRead(IDISCHG);
+    x3 = analogRead(CURRENT_SENSOR_DISCHARGE_PIN);
     datSum += x3;
     n++;
   } //end loop
   datAvg = (1.0 * datSum) / n;  // find the mean
 
   if (Print_Flag){
-      Serial.print(IDISCHG);
+      Serial.print(CURRENT_SENSOR_DISCHARGE_PIN);
       Serial.print(" IDISCHG avg value: ");     Serial.print(datAvg, 2);
       if (datAvg < 50)
       {
@@ -957,7 +982,7 @@ throwaway_i:   ;
   double x4 = 0;
 
   for (int i = 0; i < SAMPLES; i++) {  
-    x4 = analogRead(VSCALEDPACK);
+    x4 = analogRead(PACK_VOLTAGE_PIN);
     if ((i < 10 ) || (i > 160)) goto throwaway_c;  // throw away the first 10 and last 40 samples
     datSum += x4;
     n++;
@@ -1000,7 +1025,7 @@ throwaway_c:  ;
 
  
   if (Print_Flag){   // print data only when block data is in
-     Serial.print(VSCALEDPACK);
+     Serial.print(PACK_VOLTAGE_PIN);
      Serial.print(" Vpack: ");     Serial.print(Vpack,1);  Serial.print(" VDC"); Serial.println ();
   }
 
@@ -1190,7 +1215,6 @@ throwaway_c:  ;
 
   // control charger current with DAC2
   float TargetI;        //Amps
-  //uint16_t gTempPot;       // current potentiomenter
   const int FULL_CHARGE_RATE = 1060 / 2;  // full charge rate = 5V out for Elcon charger control
   uint16_t FullChargeCurrent = 30;      // 30 amps full chg for FIDO
   const int STARTING_CHARGE_RATE = 1023 / 5; // zero charge rate to start - below 2V is 0 charge rate for Elcon PFC charger
