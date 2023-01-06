@@ -37,6 +37,7 @@
   //#define LG_MH1
   #define LG_MJ1
   //#define SANYO_NCR18650B
+
 // Pack defines
   #define NUMBER_OF_BLOCK_MANAGERS 40
 
@@ -49,8 +50,10 @@
     #define CHARGER_ON_OFF
   // Analog style 0 to 5v
     //#define CHARGER_ANALOG_DAC2
-    #define ANALOG_ON   5 // fully on voltage
-    #define ANALOG_OFF  2 // fully off voltage 
+    #ifdef CHARGER_ANALOG_DAC2
+      #define ANALOG_ON   5 // fully on voltage
+      #define ANALOG_OFF  2 // fully off voltage
+    #endif
   // 72v CAN Bus Charger
     //#define MYBLUESKY_S2500
 
