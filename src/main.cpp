@@ -34,7 +34,9 @@
 
 // ****************************************************************************CONFIGURATION
 // Cell Type
-
+  //#define LG_MH1
+  #define LG_MJ1
+  //#define SANYO_NCR18650B
 // Pack defines
   #define NUMBER_OF_BLOCK_MANAGERS 40
 
@@ -50,7 +52,7 @@
     #define ANALOG_ON   5 // fully on voltage
     #define ANALOG_OFF  2 // fully off voltage 
   // 72v CAN Bus Charger
-    //#define MYBLUESKY
+    //#define MYBLUESKY_S2500
 
     
 // **************************************************************************** //
@@ -62,11 +64,14 @@
 #include <Arduino.h>
 #include <RHReliableDatagram.h>     // https://github.com/andrewbierer/RadioString
 #ifdef RF24
-  #include <RH_NRF24.h>               // https://github.com/PaulStoffregen/RadioHead
+  #include <RH_NRF24.h>             // https://github.com/PaulStoffregen/RadioHead
 #endif
+#include <FlexCAN.h>                // https://github.com/teachop/FlexCAN_Library
 #include <SPI.h>                    // https://github.com/PaulStoffregen/SPI
 #include <EEPROM.h>                 // https://github.com/PaulStoffregen/EEPROM
 #include <elapsedMillis.h>          // https://github.com/pfeerick/elapsedMillis
+#include <NCP18.h>                  // NTC to 12bit ADC Reference
+#include <celltypes.h>              // Cell Specifcations
 
 
 // ****************************************************************************APPLICATION SETUP
@@ -238,7 +243,243 @@ const int pwm_freq = 40000;
 const int FULLPWMRANGE = 1000;
 #pragma endregion AIO
 
+// ****************************************************************************BLUE MY SKY CHARGER
+#pragma region BMSCAN
+#ifdef MYBLUESKY_S2500
+    // states
+  #define BMS_DO_NOT_CHARGE    0
+  #define BMS_TRICKLE          1
+  #define BMS_BULK_FULL        2
+  #define BMS_BULK_HALF        3
+  #define BMS_BULK_QUARTER     4
+  #define BMS_TOP_UP           5
+  #define BMS_PAUSE            6
+  #define BMS_COMPLETE         7
+  uint8_t bmsChargeStatus    = BMS_DO_NOT_CHARGE;
+    // charging variables
+  const uint16_t bmsVoltage             = 830;    // max charge voltage 830 = 83.0V
+  const uint16_t bmsTrickleCurrent      = 10;     // trickle current 10 = 1.0A
+  const uint16_t bmsMaxCurrent          = 200;    // max charge current 200 = 20.0A
+  const uint16_t bmsEndCurrent          = 1;      // end charge current 1 = 0.1A
+  static float bmsVoltageStatus         = 0;      // charger output
+  static float bmsCurrentStatus         = 0;      // charger output
+  elapsedMillis bmsTopUpCounter;                  // counter for top up cycle if necessary
+  const uint8_t bmsChargeDelay          = 24;     // time delay between charge attempts in hours
+    // can bus variables
+  const uint16_t Tx_msg_interval = 1000;   // CAN Bus message rate
+  elapsedMillis Tx_counter;
+  static CAN_message_t rxMsg;
+  const uint32_t BMS_TO_CHARGER = 0x1806E5F4;
+  const uint32_t CHARGER_BROADCAST = 0x18FF50E5;
+  
+  /**************************************************************************/
+  /*!
+  	@brief  initialization of the Blue My Sky CAN BUS Charger
+  */
+  /**************************************************************************/
+  void initBmsCAN(void){
+    Can0.begin(250000);                         // join CAN at 250Kbps
+    CAN_filter_t Filter;                        // CAN filter struct
+    Filter.id = 0;                              // dont filter any Rx messages
+    Filter.ext = 1;                             // set filter to Rx extended
+    Filter.rtr = 0;                             // remote requests off
+    for(uint8_t MBnum=0; MBnum<16; MBnum++) {   // set filter on all mailboxes
+      Can0.setFilter(Filter,MBnum);
+    }
+  }
+  
+  /**************************************************************************/
+  /*!
+  	@brief Blue My Sky Charger CAN Send
+    @param id destination id
+    @param cV adjust voltage
+    @param cC adjust current
+    @param on_off turn charger on or off
+  */
+  /**************************************************************************/
+  void bmsCANSend(uint32_t id, uint16_t  cV, uint16_t cC, bool on_off){
+    CAN_message_t hold;
+    hold.id = id;                                                    // set id
+    hold.ext = 1;                                                    // set message as extended
+    hold.rtr = 0;                                                    // set remote off
+    hold.len = 5;                                                    // message length in bytes
+    hold.buf[0] = (uint8_t)((cV & 0xFF00) >> 8);                     // split the two bytes of voltage                               
+    hold.buf[1] = (uint8_t)(cV & 0x00FF);
+    hold.buf[2] = (uint8_t)((cC & 0xFF00) >> 8);                     // split the two bytes of current
+    hold.buf[3] = (uint8_t)(cC & 0x00FF);
+    if(on_off == 1) hold.buf[4] = 0x00;                              // 00 is on
+    else hold.buf[4] = 0x01;                                         // send to the bus
+    Can0.write(hold);
+  
+    #ifdef CAN_DEBUG
+    DEBUG_PRINT("Tx - ")
+    DEBUG_PRINT_HEX(hold.id); DEBUG_PRINT(" ");
+    DEBUG_PRINT_HEX(hold.len); DEBUG_PRINT(" ");
+    for(int i = 0; i<hold.len; i++){
+      DEBUG_PRINT_HEX(hold.buf[i]); DEBUG_PRINT(" ");
+    }
+    DEBUG_PRINTLN();
+    #endif
+  }
+  
+  /**************************************************************************/
+  /*!
+  	@brief Blue My Sky Charger CAN Receive - Receives data from can bus, 
+    returns 1 for message received and 0 for no message data is passed by 
+    struct reference
+    @param CAN_message_t incomming message
+  */
+  /**************************************************************************/
+  bool bmsCANReceive(struct CAN_message_t &hold){
+    if(Can0.available()) {
+      Can0.read(hold);
+  
+      #ifdef CAN_DEBUG
+      DEBUG_PRINT("Rx - ");
+      DEBUG_PRINT_HEX(hold.id); DEBUG_PRINT(" ");
+      DEBUG_PRINT_HEX(hold.len); DEBUG_PRINT(" ");
+      for(int i = 0; i<hold.len; i++){
+        DEBUG_PRINT_HEX(hold.buf[i]); DEBUG_PRINT(" ");
+      }
+      DEBUG_PRINTLN();
+      #endif
+  
+      return 1;
+    }
+  
+    return 0;
+  }
+  
+  /**************************************************************************/
+  /*!
+  	@brief Blue My Sky Charger Manager - Manages all communication when called
+  */
+  /**************************************************************************/
+  void blueMySkyChargerManager(){
+    // CAN bus controlled charger with a min output of 1A and a Max of 20A @ 240VAC
+    // send message at set speed (1 per sec default)
+    if(Tx_counter >= Tx_msg_interval) {
+      Tx_counter = 0;                                   // reset counter
+      bool rxFlag = 0;
+      rxFlag = bmsCANReceive(rxMsg);                    // check for messages
+      // if message, convert hex bytes into float
+      if(rxFlag == 1 && rxMsg.id == CHARGER_BROADCAST){
+        bmsVoltageStatus = ((uint8_t)(rxMsg.buf[0]) <<8 | (uint8_t)(rxMsg.buf[1]));
+        bmsVoltageStatus = bmsVoltageStatus/10;
+        bmsCurrentStatus = ((uint8_t)(rxMsg.buf[2]) <<8 | (uint8_t)(rxMsg.buf[3]));
+        bmsCurrentStatus = bmsCurrentStatus/10;
+        // charger data serial output for debug
+        #ifdef CHARGER_DEBUG
+          DEBUG_PRINT(F("Charger Output: ")); DEBUG_PRINT_1(cVoltage); DEBUG_PRINT("V ");
+          DEBUG_PRINT_1(cCurrent); DEBUG_PRINTLN("A ");
+          DEBUG_PRINT(F("DK_PS Readings: ")); DEBUG_PRINT_1(Vpack); DEBUG_PRINT("V ");
+          DEBUG_PRINT_1(gAmps); DEBUG_PRINT("A ");
+          switch (Charge_status_flag){
+            case DO_NOT_CHARGE:
+              DEBUG_PRINTLN(F("DO NOT CHARGE"))
+              break;
+            case TRICKLE:
+              DEBUG_PRINTLN(F("TRICKLE"))
+              break;
+            case BULK_FULL:
+              DEBUG_PRINTLN(F("BULK FULL"))
+              break;
+            case BULK_HALF:
+              DEBUG_PRINTLN(F("BULK HALF"))
+              break;  
+            case BULK_QUARTER:
+              DEBUG_PRINTLN(F("BULK QUARTER"))
+              break;
+            case TOP_UP:
+              DEBUG_PRINTLN(F("TOPPING UP"))
+              break;
+            case COMPLETE:
+              DEBUG_PRINTLN(F("COMPLETE"))
+              break;
+          }
+        #endif
+      }
+      // outside of safe operating range? DO NOT CHARGE
+      #ifdef CHARGER_DEBUG
+        DEBUG_PRINT(F("High Temp  ADC: ")); DEBUG_PRINTLN(Hist_Highest_Tcell);
+        DEBUG_PRINT(F("Low  Temp  ADC: ")); DEBUG_PRINTLN(Hist_Lowest_Tcell);
+        DEBUG_PRINT(F("High Volt Cell: ")); DEBUG_PRINTLN(Hist_Highest_Vcell);
+        DEBUG_PRINT(F("Low  Volt Cell: ")); DEBUG_PRINTLN(Hist_Lowest_Vcell);
+      #endif
+      if(Hist_Lowest_Tcell >= Tcell_Charge_Low_Cutoff || Hist_Highest_Tcell <= Tcell_Charge_High_Cutoff ||
+      Hist_Lowest_Vcell <= Vcell_Charge_Low_Cutoff || Hist_Highest_Vcell >= Vcell_Charge_High_Cutoff) {
+        bmsCANSend(BMS_TO_CHARGER, 0, 0, OFF);
+        bmsChargeStatus = BMS_DO_NOT_CHARGE;
+      }
+      // inside of safe operating range? CHARGE
+      else{
+        // check for very low voltages, if not too low trickle charge
+        if(Hist_Lowest_Vcell <= Vcell_Charge_Trickle) {
+          bmsChargeStatus = BMS_TRICKLE;
+        }
+        // check for bulk charge voltages, adjust current based on cell temperature
+        if(Hist_Lowest_Vcell > Vcell_Charge_Trickle && Hist_Highest_Vcell < Vcell_Charge_Bulk) {
+          if(Hist_Highest_Tcell >  Tcell_Charge_Taper_1) bmsChargeStatus = BMS_BULK_FULL;
+          if(Hist_Highest_Tcell <= Tcell_Charge_Taper_1) bmsChargeStatus = BMS_BULK_HALF;
+          if(Hist_Highest_Tcell <= Tcell_Charge_Taper_2) bmsChargeStatus = BMS_BULK_QUARTER;
+        }
+        // check for end charge voltages, top end trickle charge
+        if(Hist_Highest_Vcell > Vcell_Charge_Bulk && Hist_Highest_Vcell < Vcell_Charge_Off) {
+          bmsChargeStatus = BMS_TOP_UP;
+        }
+        // if any cell over Charge off V, pause charger
+        if(Hist_Highest_Vcell > Vcell_Charge_Off) {
+          bmsChargeStatus = BMS_PAUSE;
+        }
+        // if all cells between balance V and charge off voltage, turn off charger
+        if(Hist_Lowest_Vcell > Vcell_Balance && Hist_Highest_Vcell < Vcell_Charge_Off) {
+          bmsChargeStatus = BMS_COMPLETE;
+        }
+        // if statements above set charge status, switch statement sends data to charger
+        switch (bmsChargeStatus) {
+              case BMS_TRICKLE:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsTrickleCurrent, ON);
+                break;
+              case BMS_BULK_FULL:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsMaxCurrent, ON);
+                break;
+              case BMS_BULK_HALF:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 2), ON);
+                break;
+              case BMS_BULK_QUARTER:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 4), ON);
+                break;
+              case BMS_TOP_UP:
+                // cycles charger on and off because charger resolution is not able to provide under 1A
+                if(bmsTopUpCounter < 25000){
+                  bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, ON);
+                }
+                else{
+                  bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                }
+                if(bmsTopUpCounter > 60000){
+                  bmsTopUpCounter = 0;
+                }
+                break;
+              case BMS_PAUSE:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                break;
+              case BMS_COMPLETE:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                gCharge_Timer = bmsChargeDelay;
+                break;
+              default:
+                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                break;
+        }
+      }
+    }
+  }
+#endif
+#pragma endregion BMSCAN
+
 // ****************************************************************************
+
  // Lithium Cell temperature specifications - use "NTC thermistor muRata NCP18W104D computations from -40-60C in 5 deg steps.ods"
   #define BAT_TYPE_MJ1  (0) // 0 = LG MJ1 type -   //cell parameters for LG MH1 3200mah
 
@@ -287,42 +528,12 @@ const uint8_t COMM_TIMEOUT = 255;     // max 4+ minute comm timeout - then go to
 uint8_t Block_Comm_Timer[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };    // Kents bug change
 
 
-// cell types (application specific)
-int Cell_Type = 0;        // default to LG type
-const byte  LG_MH1 = 1;          // 3200mah
-const byte  LG_MJ1 = 0;          // 3500mah
-const byte  SANYO_NCR18650B = 20;  // 3400mah
-const byte  CELLTYPE0 = 40;        //
-const byte  CELLTYPE1 = 60;        //
-const byte  CELLTYPE2 = 80;        //
-
-
-
-// Declare lithium Ion cell spec vars
-float Vcell_HVD_Spec = 4.3;	// threshold where alarm is set and LED goes red.
-// load later when cell type is chosen
-float Vcell_Balance;      // voltage above where Cells will balance
-float Vcell_Nominal_Spec;
-float Vcell_Low_Spec;    // threshold where fans and heaters are turned off to save power
-float Vcell_LVD_Spec;  	// threshold where all electronics turns off......about 2VPC
 const float CELL_RECONNECT_V = 4.000; // reconnect charger at this (lowest) cell voltage
-// cell temperature vars
-//const int Tcell_SMOKE = 95;  // At 95C and above there may be smoke ...danger shut off all fans and electronics
-const int NTC_SMOKE = 111;  // ADC counts for 100C
-const int NTC_63C = 390;  // ADC counts for ~~63C
-const int NTC_60C = 416;  // ADC counts for 60C
-const int NTC_57C = 455;  // ADC counts for 57C (hot cells but not overtemp - yet!)
-const int NTC_WARM = 987;  // ADC counts for 35C
-const int NTC_AMBIENT = 1365;  // ADC counts for 25C
-const int NTC_COLD = 3000;  // ADC counts for -10C
+
 uint16_t Overtemp_Cells_Charging ;    // vars to store over and under cell temperature specifications
 uint16_t Overtemp_Cells_Discharging ;
 uint16_t Undertemp_Cells_Charging ;
 uint16_t Undertemp_Cells_Discharging ;
-
-
-
-
 
 //const float VPACK_HI_CHG_LIMIT = 60.0;    // do not allow charger to raise pack > 4.20V cell x 20 cells = 84VDC
 // const float Vpack_HV_Run_Limit = 64.0; // Confirm with Jeb
@@ -333,12 +544,9 @@ const float VPACK_HI_CHG_LIMIT = No_Of_Cells * Vcell_HVD_Spec;    // do not allo
 //const float Vpack_HV_Run_Limit = 90.0; // Confirm with Jeb
 //const float VPACK_LO_RUN_LIMIT = 58.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
 
-
 // current control
 uint16_t gTempPot;       // current potentiomenter
 float gAmps;              // amps plus and minus through LEM sensor
-
-
 
 // const int led = 13; //temp use of led on teensy    (ALSO used as NTC4 input)
 
@@ -349,10 +557,6 @@ float gAmps;              // amps plus and minus through LEM sensor
   const byte MOSI = 11;
   const byte CE = 9;
 */
-
-
-
-
     
 // declare global vars
 //const float EEPROM_CHG_SENSOR_OFFSET = 3094.8;  //3103;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
@@ -388,7 +592,6 @@ byte T_MODECHECK = 10;    // update historical vars every minute for a 10 min ru
 const int T_HISTORYCHECK = 1;    // update historical vars every 1 secs
 int HistoryTimer = T_HISTORYCHECK;
 //  int Temp1 = 0;
-
 
 
 /***********************************************************
@@ -488,31 +691,6 @@ void setup() {
     manager.init();     // and try again if not the first time
   }
   else   Serial.println("Comms init success");
-
-  
-
-  // Lithium Cell voltage specifications
-  if (Cell_Type == LG_MH1)  {  //cell parameters for LG MH1 3200mah
-    Vcell_HVD_Spec = 4.21;      // High voltage disconnect, charger disconnected 4.25 max spec leave room for 0.1% acc.
-    Vcell_Nominal_Spec = 3.67;
-    Vcell_Low_Spec = 2.91;      // End voltage cutoff 2.5V is spec, but no energy there, plus lifetime is important
-    Vcell_LVD_Spec = 2.91;      // low voltage disconnect, all off
-    Vcell_Balance = 4.11;        // start balancing
-  } 
-  if (Cell_Type == LG_MJ1)  {  //cell parameters for LG MJ1 3500mah
-    Vcell_HVD_Spec = 4.21;      // High voltage disconnect, charger disconnected
-    Vcell_Nominal_Spec = 3.635;
-    Vcell_Low_Spec = 2.91;      // End voltage cutoff 2.5V is spec, but no energy there, plus lifetime is important
-    Vcell_LVD_Spec = 2.91;      // low voltage disconnect, all off
-    Vcell_Balance = 4.10;        // start balancing
-  }
-  if (Cell_Type == SANYO_NCR18650B) {                        // else choose Panasonic/Sanyo NCR18650B
-    Vcell_HVD_Spec = 4.3;
-    Vcell_Nominal_Spec = 3.7;
-    Vcell_Low_Spec = 2.9;
-    Vcell_LVD_Spec = 2.9;
-    Vcell_Balance = 3.9;
-  }
 
  // Load Lithium Cell temperature specifications
   Overtemp_Cells_Charging = OVERTEMP_CELLS_CHARGING ;
@@ -706,16 +884,14 @@ void loop() {
     if (tempx > 5)
     {
       tempx = 10;
-      if (minutes < 1) LEARNBLOCKS = ON;    // turn on first minute, allow to be turned off after that for time or full EE
-      if (LearnBlockSwitch == ON)
-      {
+      if (minutes < 1){
+        LEARNBLOCKS = ON;    // turn on first minute, allow to be turned off after that for time or full EE
+      }
+      if (LearnBlockSwitch == ON){
         blockNum[0] = blockNum[1] = blockNum[2] = blockNum[3] = blockNum[4] = blockNum[5] = blockNum[6] = blockNum[7] = blockNum[8] = blockNum[9] = 0;
-        if (NUMofDKBLOCKS > 10) {
+        if (NUMofDKBLOCKS > 10){
           blockNum[10] = blockNum[11] = blockNum[12] = blockNum[13] = blockNum[14] = blockNum[15] = blockNum[16] = blockNum[17] = blockNum[18] = blockNum[19] = 0;
         }
-      
-      
-      
       
       //is 4/18/2019
         for (tempx = 0; tempx < NUMofDKBLOCKS; tempx++){
