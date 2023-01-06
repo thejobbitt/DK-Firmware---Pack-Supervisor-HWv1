@@ -30,7 +30,7 @@
 //  7/26/2019 TBE     3019    Filtered Vpack more, reacts too fast (but is very accurate)! Verified better than 1% accuracy at 100V and 160V. Note on next Version to put bigger X7R cap on Vpack resistor
 //  8/1/2019          3019    Shipped Kent's bug units - 20 BM PCB and 1 PS PCB with Server Address = 60 and Block address = 1-20
 
-#define VERSION 0123   // 5215 = 52th week of 2015
+#define VERSION 0123   // EXAMPLE: 5215 = 52th week of 2015
 
 // ****************************************************************************CONFIGURATION
 // Cell Type
@@ -73,6 +73,7 @@
 #include <SPI.h>                    // https://github.com/PaulStoffregen/SPI
 #include <EEPROM.h>                 // https://github.com/PaulStoffregen/EEPROM
 #include <elapsedMillis.h>          // https://github.com/pfeerick/elapsedMillis
+
 #include <NCP18.h>                  // NTC to 12bit ADC Reference
 #include <celltypes.h>              // Cell Specifcations
 
@@ -101,6 +102,8 @@ uint8_t  dkError = ERROR_NOFAULT; // default to no faults
 #pragma endregion APP
 
 void GetBlockData(void);
+
+struct celltypes cell;
 
 // ---------SERVER ADDRESS History
 //#define SERVER_ADDRESS 2 -6 used for FIDO deliveries in 2017
@@ -409,33 +412,33 @@ const int FULLPWMRANGE = 1000;
         DEBUG_PRINT(F("High Volt Cell: ")); DEBUG_PRINTLN(Hist_Highest_Vcell);
         DEBUG_PRINT(F("Low  Volt Cell: ")); DEBUG_PRINTLN(Hist_Lowest_Vcell);
       #endif
-      if(Hist_Lowest_Tcell >= Tcell_Charge_Low_Cutoff || Hist_Highest_Tcell <= Tcell_Charge_High_Cutoff ||
-      Hist_Lowest_Vcell <= Vcell_Charge_Low_Cutoff || Hist_Highest_Vcell >= Vcell_Charge_High_Cutoff) {
+      if(Hist_Lowest_Tcell >= cell.temp_crgLow_Cutoff || Hist_Highest_Tcell <= cell.temp_crgHigh_Cutoff ||
+      Hist_Lowest_Vcell <= cell.volt_crgLow_Cutoff || Hist_Highest_Vcell >= cell.volt_crgHigh_Cutoff) {
         bmsCANSend(BMS_TO_CHARGER, 0, 0, OFF);
         bmsChargeStatus = BMS_DO_NOT_CHARGE;
       }
       // inside of safe operating range? CHARGE
       else{
         // check for very low voltages, if not too low trickle charge
-        if(Hist_Lowest_Vcell <= Vcell_Charge_Trickle) {
+        if(Hist_Lowest_Vcell <= cell.volt_crgTrickle) {
           bmsChargeStatus = BMS_TRICKLE;
         }
         // check for bulk charge voltages, adjust current based on cell temperature
-        if(Hist_Lowest_Vcell > Vcell_Charge_Trickle && Hist_Highest_Vcell < Vcell_Charge_Bulk) {
-          if(Hist_Highest_Tcell >  Tcell_Charge_Taper_1) bmsChargeStatus = BMS_BULK_FULL;
-          if(Hist_Highest_Tcell <= Tcell_Charge_Taper_1) bmsChargeStatus = BMS_BULK_HALF;
-          if(Hist_Highest_Tcell <= Tcell_Charge_Taper_2) bmsChargeStatus = BMS_BULK_QUARTER;
+        if(Hist_Lowest_Vcell > cell.volt_crgTrickle && Hist_Highest_Vcell < cell.volt_crgBulk) {
+          if(Hist_Highest_Tcell >  cell.temp_crgTaper_1) bmsChargeStatus = BMS_BULK_FULL;
+          if(Hist_Highest_Tcell <= cell.temp_crgTaper_1) bmsChargeStatus = BMS_BULK_HALF;
+          if(Hist_Highest_Tcell <= cell.temp_crgTaper_2) bmsChargeStatus = BMS_BULK_QUARTER;
         }
         // check for end charge voltages, top end trickle charge
-        if(Hist_Highest_Vcell > Vcell_Charge_Bulk && Hist_Highest_Vcell < Vcell_Charge_Off) {
+        if(Hist_Highest_Vcell > cell.volt_crgBulk && Hist_Highest_Vcell < cell.volt_crgOff) {
           bmsChargeStatus = BMS_TOP_UP;
         }
         // if any cell over Charge off V, pause charger
-        if(Hist_Highest_Vcell > Vcell_Charge_Off) {
+        if(Hist_Highest_Vcell > cell.volt_crgOff) {
           bmsChargeStatus = BMS_PAUSE;
         }
         // if all cells between balance V and charge off voltage, turn off charger
-        if(Hist_Lowest_Vcell > Vcell_Balance && Hist_Highest_Vcell < Vcell_Charge_Off) {
+        if(Hist_Lowest_Vcell > cell.volt_Balance && Hist_Highest_Vcell < cell.volt_crgOff) {
           bmsChargeStatus = BMS_COMPLETE;
         }
         // if statements above set charge status, switch statement sends data to charger
@@ -483,15 +486,6 @@ const int FULLPWMRANGE = 1000;
 
 // ****************************************************************************
 
- // Lithium Cell temperature specifications - use "NTC thermistor muRata NCP18W104D computations from -40-60C in 5 deg steps.ods"
-  #define BAT_TYPE_MJ1  (0) // 0 = LG MJ1 type -   //cell parameters for LG MH1 3200mah
-
-  #ifdef BAT_TYPE_MJ1
-    const uint16_t OVERTEMP_CELLS_CHARGING = 701; // 702 ADC counts = 45C 
-    const uint16_t OVERTEMP_CELLS_DISCHARGING = 415; // 60C
-    const uint16_t UNDERTEMP_CELLS_CHARGING = 2611;  // 0C
-    const uint16_t UNDERTEMP_CELLS_DISCHARGING = 3475; // -20C
-  #endif 
 
   #define VPACK_40S (146)        // LG - MJ1 - 40S pack voltage = 40*3.625=148V
   //#define VPACK_20S (74)         // use this for 20S pack voltage like FIDO
@@ -533,20 +527,14 @@ uint8_t Block_Comm_Timer[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0
 
 const float CELL_RECONNECT_V = 4.000; // reconnect charger at this (lowest) cell voltage
 
-uint16_t Overtemp_Cells_Charging ;    // vars to store over and under cell temperature specifications
-uint16_t Overtemp_Cells_Discharging ;
-uint16_t Undertemp_Cells_Charging ;
-uint16_t Undertemp_Cells_Discharging ;
-
 //const float VPACK_HI_CHG_LIMIT = 60.0;    // do not allow charger to raise pack > 4.20V cell x 20 cells = 84VDC
 // const float Vpack_HV_Run_Limit = 64.0; // Confirm with Jeb
 //   const float VPACK_LO_RUN_LIMIT = 52.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
 // ship with the following values ...but check with JEb first...
 //const float VPACK_HI_CHG_LIMIT = 85.0;    // do not allow charger to raise pack > 4.25V cell x 20 cells = 85VDC
-const float VPACK_HI_CHG_LIMIT = No_Of_Cells * Vcell_HVD_Spec;    // do not allow charger to raise pack > 4.25V cell x # of cells in series
+const float VPACK_HI_CHG_LIMIT = No_Of_Cells * cell.volt_HVD;    // do not allow charger to raise pack > 4.25V cell x # of cells in series
 //const float Vpack_HV_Run_Limit = 90.0; // Confirm with Jeb
 //const float VPACK_LO_RUN_LIMIT = 58.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
-
 // current control
 uint16_t gTempPot;       // current potentiomenter
 float gAmps;              // amps plus and minus through LEM sensor
@@ -695,15 +683,6 @@ void setup() {
   }
   else   Serial.println("Comms init success");
 
- // Load Lithium Cell temperature specifications
-  Overtemp_Cells_Charging = OVERTEMP_CELLS_CHARGING ;
-  Overtemp_Cells_Discharging = OVERTEMP_CELLS_DISCHARGING;
-  Undertemp_Cells_Charging = UNDERTEMP_CELLS_CHARGING;
-  Undertemp_Cells_Discharging = UNDERTEMP_CELLS_DISCHARGING;
-
- 
- 
-
   analogWrite(CHARGER_CONTROL, 0);     // prog CHG current to 0
 
   Serial.println("1: Green LED1 ");
@@ -728,8 +707,8 @@ void setup() {
   digitalWrite(LED2_RED_PIN, LOW);
 
   // save all vars until blocks are awake and comms are established
-  Highest_Vcell = Vcell_Nominal_Spec;        // load  vars with nominal values
-  Lowest_Vcell = Vcell_Nominal_Spec;
+  Highest_Vcell = cell.volt_Nominal;        // load  vars with nominal values
+  Lowest_Vcell = cell.volt_Nominal;
   Highest_Tcell = NTC_AMBIENT;
   Lowest_Tcell = NTC_AMBIENT;
   Hist_Highest_Vcell = Highest_Vcell;   // running average of all blocks highest cell v
@@ -1210,8 +1189,8 @@ throwaway_c:  ;
 
   // Make logic determinations for relays = ON or OFF, and use hysteresis to prevent relay oscillation
 
- const float Vpack_HVD = ((Vcell_HVD_Spec + 0.02) * No_Of_Cells) ;       // eg 4.21+.02=4.23 x 20 = 84.6 (.02 is headroom to balance (remember high cellV will open relay too)
-  int Vpack_LVD = Vcell_LVD_Spec * No_Of_Cells;         // eg 2.9 x 20 = 58
+ const float Vpack_HVD = ((cell.volt_HVD + 0.02) * No_Of_Cells) ;       // eg 4.21+.02=4.23 x 20 = 84.6 (.02 is headroom to balance (remember high cellV will open relay too)
+  int Vpack_LVD = cell.volt_LVD * No_Of_Cells;         // eg 2.9 x 20 = 58
   int Vpack_HV_Run_Limit = Vpack_HVD * 1.2;  // Make high voltage run limit 10% higher than HVD (be careful at high voltage like Kent's bug)
   int Vpack_Lo_Run_Limit = Vpack_LVD;
 
@@ -1220,7 +1199,7 @@ throwaway_c:  ;
   //      if ((Vpack > Vpack_HVD) || (Hist_Highest_Vcell > Vcell_HVD_Spec)) relay_charge_state = OFF;                  // if Vbat is too high, turn off charger
   //      else if ((Hist_Highest_Vcell < (Vcell_HVD_Spec - HYSTERESIS)) && (Vpack < (Vpack_HVD - HYSTERESIS))) relay_charge_state = ON;  // else now is ok so turn back on
    
-      if ((Hist_Highest_Vcell < (Vcell_HVD_Spec )) && (Vpack < (Vpack_HVD)))    //4.21 if LG
+      if ((Hist_Highest_Vcell < (cell.volt_HVD )) && (Vpack < (Vpack_HVD)))    //4.21 if LG
       {
         if ((digitalRead(INPUT_CHARGE_PIN) == 0))
         {
@@ -1229,7 +1208,7 @@ throwaway_c:  ;
     
           if (gCharge_Timer == 0) relay_charge_state = ON;      // if Charge input is activated turn on Charge relay
           // open charge relays for one day if all Cells are in Vbalance
-          if (Hist_Lowest_Vcell > Vcell_Balance)                                // 4.11 if LG
+          if (Hist_Lowest_Vcell > cell.volt_Balance)                                // 4.11 if LG
           {
             // shut down relay, start 1 day timer
             gCharge_Timer = 24;   //24 hours
@@ -1257,8 +1236,8 @@ throwaway_c:  ;
       else
       {
         // display whihc is over voltge, pack or cell
-        if (Hist_Highest_Vcell >= Vcell_HVD_Spec ) {
-          Serial.print(Hist_Highest_Vcell); Serial.print("V is > or = "); Serial.print(Vcell_HVD_Spec);
+        if (Hist_Highest_Vcell >= cell.volt_HVD ) {
+          Serial.print(Hist_Highest_Vcell); Serial.print("V is > or = "); Serial.print(cell.volt_HVD);
           Serial.println("**** FAULT - Cell V is too high to initiate charger now.... ");
         }
        if (Vpack >= Vpack_HVD) {
@@ -1280,7 +1259,7 @@ throwaway_c:  ;
     if (Print_Flag) Serial.println(" Drive relay IS OFF because Vpack is too LOW or too HIGH");
   }
   else{
-    if((Vpack < (Vpack_HV_Run_Limit - HYSTERESIS)) && (Hist_Lowest_Vcell > Vcell_LVD_Spec)){ // check pack and cell specs
+    if((Vpack < (Vpack_HV_Run_Limit - HYSTERESIS)) && (Hist_Lowest_Vcell > cell.volt_LVD)){ // check pack and cell specs
       if ((digitalRead(INPUT_CHARGE_PIN) != 0) && (digitalRead(INPUT_KEYSWITCH_PIN) == 0)){
         relay_drive_state = ON;   // if pack ok, and charger is off (or disconnected) turn on motor control
         if (Print_Flag) Serial.println(" Drive relay IS ON because KEYSWITCH is ON AND CHARGE input is OFF ");
@@ -1299,33 +1278,33 @@ throwaway_c:  ;
   // Cell temperature tests - OVERTEMP and UNDERTEMP for both charging and discharging
   // Overtemp first
 
-  if (Hist_Highest_Tcell < Overtemp_Cells_Discharging) {  // lower counts are hotter
+  if (Hist_Highest_Tcell < cell.temp_over_driveRelayCut) {  // lower counts are hotter
       relay_drive_state = OFF;               
       Serial.println(" ***** FAULT - Drive relay is OFF because cell OVERTEMP ");
       Serial.print(" ***** FAULT - Overtemp Cell temp counts = "); Serial.println(Hist_Highest_Tcell);
-      Serial.print(" *** High temp limit = "); Serial.println(Overtemp_Cells_Discharging);
+      Serial.print(" *** High temp limit = "); Serial.println(cell.temp_over_driveRelayCut);
   }
   
-  if (Hist_Highest_Tcell < Overtemp_Cells_Charging) {     // lower is hotter with NTC thermistor
+  if (Hist_Highest_Tcell < cell.temp_over_chargeRelayCut) {     // lower is hotter with NTC thermistor
       relay_charge_state = OFF;
       Serial.println(" ***** FAULT - Charge relay is OFF because cell OVERTEMP ");
       Serial.print(" ***** FAULT - Overtemp Cell temp counts = "); Serial.println(Hist_Highest_Tcell);
-      Serial.print(" *** High temp limit = "); Serial.println(Overtemp_Cells_Charging);
+      Serial.print(" *** High temp limit = "); Serial.println(cell.temp_over_chargeRelayCut);
       } 
     
   // undertemp second
-  if (Hist_Lowest_Tcell > Undertemp_Cells_Discharging) {
+  if (Hist_Lowest_Tcell > cell.temp_under_driveRelayCut) {
      relay_drive_state = OFF;               
      Serial.println(" ***** FAULT - Drive relay is OFF because cell UNDERTEMP ");
      Serial.print(" ***** FAULT - Undertemp Cell temp counts = "); Serial.print(Hist_Lowest_Tcell);
-     Serial.print(" Low temp limit = "); Serial.println(Undertemp_Cells_Discharging);
+     Serial.print(" Low temp limit = "); Serial.println(cell.temp_under_driveRelayCut);
     }
     
-   if (Hist_Lowest_Tcell > Undertemp_Cells_Charging) {  // higher is colder with NTC
+   if (Hist_Lowest_Tcell > cell.temp_under_chargeRelayCut) {  // higher is colder with NTC
      relay_charge_state = OFF;
      Serial.println(" ***** FAULT - Charge relay is OFF because cell UNDERTEMP ");
      Serial.print(" ***** FAULT - Cell temp counts = "); Serial.print(Hist_Lowest_Tcell);
-     Serial.print(" Low temp limit = "); Serial.println(Undertemp_Cells_Charging);
+     Serial.print(" Low temp limit = "); Serial.println(cell.temp_under_chargeRelayCut);
     } 
     
 
@@ -1400,7 +1379,7 @@ throwaway_c:  ;
 
   // 100% charge rate to 4VPC, 100ma from there on,  default to 50% charge rate
  // if ((Hist_Highest_Vcell < Vcell_Balance) && (Vpack < Vpack_HVD )) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
-  if ((Hist_Highest_Vcell < Vcell_Balance) && (Vpack < (Vcell_Balance * No_Of_Cells))) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
+  if ((Hist_Highest_Vcell < cell.volt_Balance) && (Vpack < (cell.volt_Balance * No_Of_Cells))) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
   else
   {
     TargetI = BalanceChargeCurrent;                     // 200ma charge rate from there up to keep cells balanced
@@ -1754,9 +1733,6 @@ exitsaveblock:
         Serial.print(Temp2, 3); Serial.println(" VDC Lo Cell");
         }
       }
-     
-
- 
 
     if (CommsFaults > 100) {
       CommsFaults = 0;
