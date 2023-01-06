@@ -3,8 +3,9 @@
 #ifndef NCP18_H
 #define NCP18_H
 
-//NCP18WF104J03RB				
-//Degree C to 12Bit ADC
+// Lithium Cell temperature specifications - use "NTC thermistor muRata NCP18W104D computations from -40-60C in 5 deg steps.ods"
+// NCP18WF104J03RB with 200k pullup
+// Degree C to 12Bit ADC
 #define NTC_NEG_20C		3490
 #define NTC_NEG_19C		3457
 #define NTC_NEG_18C		3423
@@ -116,8 +117,17 @@
 #define NTC_86C 		168
 #define NTC_87C 		163
 #define NTC_88C 		158
-#define NTC_89C 		153	
+#define NTC_89C 		153
 #define NTC_90C 		148
+#define NTC_95C         130
+#define NTC_100C        111
 #define NTC_SMOKE       111
+#define NTC_105C        95
+#define NTC_110C        82
+#define NTC_115C        71
+#define NTC_120C        61
+#define NTC_125C        53
+#define NTC_135C        30
+#define NTC_145C        10
 
 #endif
