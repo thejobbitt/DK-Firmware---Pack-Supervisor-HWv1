@@ -17,6 +17,8 @@ extern struct celltypes cell;
 #ifdef LG_MH1                                       // cell parameters for LG MH1 3200mah
     struct celltypes
     {
+        // capacity
+        const u_int16_t capacity                    = 3200;    // cell capacity in mAh
         // voltage specifications
         const float volt_Nominal                    = 3.67f;   // nominal voltage
         const float volt_Balance                    = 4.11f;   // balancing voltage
@@ -41,11 +43,13 @@ extern struct celltypes cell;
     };
 #endif
 
-#ifdef LG_MJ1                                       // cell parameters for LG MH1 3500mah
+#ifdef LG_MJ1                                       // cell parameters for LG INR18650 MJ1 3500mah
     struct celltypes
     {
+        // capacity
+        const u_int16_t capacity                    = 3500;    // cell capacity in mAh
         // voltage specifications
-        const float volt_Nominal                    = 3.64f;   // nominal voltage
+        const float volt_Nominal                    = 3.635f;  // nominal voltage
         const float volt_Balance                    = 4.11f;   // balancing voltage
         const float volt_HVD                        = 4.21f;   // high voltage disconnect
         const float volt_LVD                        = 2.91f;   // low voltage disconnect
@@ -71,6 +75,8 @@ extern struct celltypes cell;
   #ifdef SANYO_NCR18650B                            // cell parameters for Panasonic/Sanyo NCR18650B
     struct celltypes
     {
+        // capacity
+        const u_int16_t capacity                    = 3400;    // cell capacity in mAh
         // voltage specifications
         const float volt_Nominal                    = 3.70f;   // nominal voltage
         const float volt_Balance                    = 3.90f;   // balancing voltage
