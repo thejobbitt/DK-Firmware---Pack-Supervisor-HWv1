@@ -19,7 +19,7 @@
  */
   #define NUMBER_OF_BLOCK_MANAGERS  20  
   #define NUMBER_OF_S_CELLS         40  // number of block managers x 2
-  #define NUMBER_OF_P_CELLS         30  // default: 10 (each block has 10 per clamp)
+  #define NUMBER_OF_P_CELLS         30  // default: 10 (each block has 10 per clamp) FUTURE USE
 
   // ---------SERVER ADDRESS History
   // 1 and 9 => reserved for lab use
@@ -50,8 +50,8 @@
   // Analog style 0 to 5v
     #define CHARGER_ANALOG_DAC2
     #ifdef CHARGER_ANALOG_DAC2
-      #define ANALOG_ON   5 // fully on voltage
-      #define ANALOG_OFF  2 // fully off voltage
+      #define ANALOG_FULL_VOLT  5 // fully on voltage NOT HOOKED UP
+      #define ANALOG_OFF_VOLT   2 // fully off voltage NOT HOOKED UP
     #endif
   // 72v CAN Bus Charger
     //#define CHARGER_MYBLUESKY_S2500
@@ -83,6 +83,17 @@
 
 #include <NCP18.h>                  // NTC to 12bit ADC Reference
 #include <celltypes.h>              // Cell Specifcations
+
+// ****************************************************************************DEBUG
+// debug serial out is not delayed
+  //#define CHARGER_DEBUG
+  //#define CAN_DEBUG
+bool PRINT = 0;   // 0 = no debug print
+bool VerbosePrintBLOCKDATA = PRINT;  // turn on (1) or off verbose prints
+bool VerbosePrintSUPERDATA = PRINT;  // turn on (1) or off verbose prints for supervisor
+bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
+bool VerbosePrintCommsDATA = PRINT ;
+bool Print_Flag = 0;
 
 // ****************************************************************************APPLICATION VAR
 #pragma region APP
@@ -132,15 +143,6 @@ float gSOCv = Vnominal;   // init with a nominal value
 elapsedMillis serialDelayTimer  = 0;    // limits the serial out put to make it more readable
 uint16_t      serialDelay       = 1000; // in milliseconds
 
-// debug serial out is not delayed
-  //#define CHARGER_DEBUG
-  //#define CAN_DEBUG
-bool PRINT = 0;   // 0 = no debug print
-bool VerbosePrintBLOCKDATA = PRINT;  // turn on (1) or off verbose prints
-bool VerbosePrintSUPERDATA = PRINT;  // turn on (1) or off verbose prints for supervisor
-bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
-bool VerbosePrintCommsDATA = PRINT ;
-
   // software real time clock vars
 unsigned long currentmicros = 0;
 unsigned long nextmicros = 0;
@@ -164,7 +166,7 @@ int HistoryTimer = T_HISTORYCHECK;
  * Must be before void setup();
  */
 
-#define WATCHDOG_MILLISECONDS 2000
+#define WATCHDOG_MILLISECONDS 1000
 
 extern "C" void startup_early_hook(void);
 
@@ -205,7 +207,7 @@ void watchdogReset() {
   #define LED1_GREEN_PIN      16
   #define LED2_RED_PIN        7
   #define LED2_GREEN_PIN      8
-  //#define LED_ONBOARD         13  //temp use of led on teensy    (ALSO used spi clock)
+  //#define LED_ONBOARD_PIN     13  //temp use of led on teensy    (ALSO used spi clock)
     // relay pins
   #define RELAYDR1_CHARGE_PIN 5
   #define RELAYDR2_DRIVE_PIN  6
@@ -217,32 +219,32 @@ void watchdogReset() {
   #define SUPERVISOR_TEMP_PIN           A3  // Onboard supervisor NTC (previously NTCambient)
   #define CURRENT_SENSOR_CHARGE_PIN     A11 // Schematic(ICHG), PCB(CON8, CH)
   #define CURRENT_SENSOR_DISCHARGE_PIN  A5  // Schematic(IDISCHG), PCB(CON8, DIS)  
-  #define VBALANCE                      A10 // Schematic(TP VBAL), Currently unused
+  #define VBALANCE_PIN                  A10 // Schematic(TP VBAL), Currently unused
     // output pins
   #define OUTPUT_LIMP_PIN     18
-  #define DAC_OUT_FUEL_GAUGE  A14
+  #define DAC_FUEL_GAUGE_PIN  A14
     // PWM Pins for op amp digital DACs (note: 10 bits PWM same setup as Analog DAC output)
-  #define PWM1_DAC1           20
-  #define PWM2_DAC2           21
+  #define PWM1_DAC1_PIN       20
+  #define PWM2_DAC2_PIN       21
     // SPI pins
-  #define SPI0_SCLK           13
-  #define SPI0_MISO           12
-  #define SPI0_MOSI           11
-  #define SPI0_CS             10
-  #define SPI0_CE             9
+  #define SPI0_SCLK_PIN       13
+  #define SPI0_MISO_PIN       12
+  #define SPI0_MOSI_PIN       11
+  #define SPI0_CS_PIN         10
+  #define SPI0_CE_PIN         9
     // unused pins
-  #define UNUSEDA12           A12
-  #define UNUSEDA13           A13
-  #define UNUSEDA24           24
-  #define UNUSEDA25           25
-  #define UNUSEDA26           26
-  #define UNUSEDA27           27
-  #define UNUSEDA28           28
-  #define UNUSEDA29           29
-  #define UNUSEDA30           30
-  #define UNUSEDA31           31
-  #define UNUSEDA32           32
-  #define UNUSEDA33           33
+  #define UNUSED_A12_PIN      A12
+  #define UNUSED_A13_PIN      A13
+  #define UNUSED_A24_PIN      24
+  #define UNUSED_A25_PIN      25
+  #define UNUSED_A26_PIN      26
+  #define UNUSED_A27_PIN      27
+  #define UNUSED_A28_PIN      28
+  #define UNUSED_A29_PIN      29
+  #define UNUSED_A30_PIN      30
+  #define UNUSED_A31_PIN      31
+  #define UNUSED_A32_PIN      32
+  #define UNUSED_A33_PIN      33
 #endif
 
 #define VREF (3.266)                    // ADC reference voltage (= power supply)
@@ -255,7 +257,7 @@ void watchdogReset() {
 
 /**************************************************************************/
 /*!
-	@brief  initialization of the microcontroller.
+	@brief  Initialization of the microcontroller.
 */
 /**************************************************************************/
 void initBoard(){
@@ -278,26 +280,26 @@ void initBoard(){
   pinMode(SW1_LEARN_BLKS_PIN, INPUT);
 
   // outputs
-  pinMode(PWM1_DAC1, OUTPUT);
-  pinMode(PWM2_DAC2, OUTPUT);
+  pinMode(PWM1_DAC1_PIN, OUTPUT);
+  pinMode(PWM2_DAC2_PIN, OUTPUT);
   pinMode(OUTPUT_LIMP_PIN, OUTPUT);
 
   // Unused I/O make digital output for low impedance and EMI-resistance
-  pinMode(A12, INPUT_PULLUP);
-  pinMode(A13, INPUT_PULLUP);   
-  pinMode(UNUSEDA24, OUTPUT);
-  pinMode(UNUSEDA25, OUTPUT);   
-  pinMode(UNUSEDA26, OUTPUT);   
-  pinMode(UNUSEDA27, OUTPUT);   
-  pinMode(UNUSEDA28, OUTPUT);   
-  pinMode(UNUSEDA29, OUTPUT);   
-  pinMode(UNUSEDA30, OUTPUT);   
-  pinMode(UNUSEDA31, OUTPUT);   
-  pinMode(UNUSEDA32, OUTPUT);   
-  pinMode(UNUSEDA33, OUTPUT);
+  pinMode(UNUSED_A12_PIN, INPUT_PULLUP);
+  pinMode(UNUSED_A13_PIN, INPUT_PULLUP);   
+  pinMode(UNUSED_A24_PIN, OUTPUT);
+  pinMode(UNUSED_A25_PIN, OUTPUT);   
+  pinMode(UNUSED_A26_PIN, OUTPUT);   
+  pinMode(UNUSED_A27_PIN, OUTPUT);   
+  pinMode(UNUSED_A28_PIN, OUTPUT);   
+  pinMode(UNUSED_A29_PIN, OUTPUT);   
+  pinMode(UNUSED_A30_PIN, OUTPUT);   
+  pinMode(UNUSED_A31_PIN, OUTPUT);   
+  pinMode(UNUSED_A32_PIN, OUTPUT);   
+  pinMode(UNUSED_A33_PIN, OUTPUT);
 
   // configure the ADC - Teensy PWM runs at 23kHz, DAC value is 0 to 1023
-  analogWriteFrequency(PWM1_DAC1, pwm_freq); 
+  analogWriteFrequency(PWM1_DAC1_PIN, pwm_freq); 
   analogWriteResolution(DAC_RESOLUTION);
 
   analogReference(EXTERNAL);      // set analog reference to ext ref
@@ -306,8 +308,10 @@ void initBoard(){
 
 #pragma endregion DKBOARDSETUP
 
-// ****************************************************************************COMMS SETUP
-#pragma region COMMS
+// ****************************************************************************RADIO HEAD RF24 SETUP
+#pragma region RF24
+bool Comm_Flag =0;
+
 uint8_t gBlockNumber = 1;  // default to first  block, can be 1-40 blocks NOTE there is no number 0 block
 uint8_t gValidPacket = gBlockNumber;  // this var checks what incoming packet is valid
 uint8_t gPacketTimer = 1;   // number of loops before next block in line is polled - start with 20 loops or about 800 msecs. Typ is 200 msec aver block time
@@ -316,14 +320,15 @@ uint8_t gPacketTimer = 1;   // number of loops before next block in line is poll
 uint8_t Main_Loops = 1;   // at power up use 1 main loop for packet timing to wake up blocks, then change to n loops (start with 12) to insure communication
 uint8_t gBlockNumCommFault = 0;   // This var holds the last block to not communicate to Pack Supervisor
 
-// Single instance of the radio driver
-#define DK_MESSAGE_LNGTH 16  //DK uses 16 byte packet
-RH_NRF24 driver(SPI0_CE, SPI0_CS); // for Teensy 3.x SS and CE lines
+
+#define DK_MESSAGE_LENGTH 16  //DK uses 16 byte packet
+  // objects
+RH_NRF24 rh_rf24(SPI0_CE_PIN, SPI0_CS_PIN); // for Teensy 3.x SS and CE lines
 // Class to manage message delivery and receipt, using the driver declared above
-RHReliableDatagram manager(driver, SERVER_ADDRESS);
+RHReliableDatagram rh_rh24_datagram(rh_rf24, SERVER_ADDRESS);
 // Dont put this on the stack:
 //uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];    // buffer = 24 bytes long is max RH packet
-uint8_t buf[DK_MESSAGE_LNGTH];    // buffer = 16 bytes long is max DK packet
+uint8_t buf[DK_MESSAGE_LENGTH];    // buffer = 16 bytes long is max DK packet
 
 // comms vars
 uint16_t CommsFaults = 0;
@@ -356,6 +361,31 @@ struct DATA {
 DATA data;
 
 /**
+ * @brief Radio Head RF24 initialization
+ *        nRF24 2.4Mhz packet comms
+ */
+void initRF24(){
+  if(!rh_rh24_datagram.init()){
+    Serial.println(F("Radio Head RF24 Comms -> FAIL"));
+    rh_rh24_datagram.init();
+  }
+  else{
+    Serial.println(F("Radio Head RF24 Comms -> OK"));
+  }
+  // default RF24 manager settings are 2000ms timeout and 3 retries. Timeout can be 2x to avoid collisions. These are too long for COP, and we don't want
+  // COP reset in comm routine in case the program hangs in that code... (*just* barely works at 110ms/3 retries, and 50ms/9)
+  // manager.setTimeout(2000); //these were production values
+  // manager.setRetries(3);
+  // manager.setTimeout(10);   // these are debug values
+  // manager.setRetries(1);    // 1 retry is 2 tries total
+  rh_rh24_datagram.setTimeout(20);   // these are final values for fastest comms
+  rh_rh24_datagram.setRetries(0);    // 0 = 1 try only
+
+  //TIM ADD SPEED AND BPS and all other RF24 settings here and inBLOCK CODE!!!!!!!!!!!!
+  //manager.setPayloadSize(12);     // 2 floats (4x2 bytes) = 8bytes +  2 + 2 = 12 bytes MUST AGREE WITH CLIENTS!!
+}
+
+/**
  * @brief Read RF24 radio FIFO's and get block data
  * 
  */
@@ -367,28 +397,28 @@ void GetBlockData(){
   uint8_t from;
 
   // Wait here for a message addressed to us from the client
-  if(manager.recvfromAck(buf, &len, &from)){
-      // we are here becase we 1)sent a short ACK-SYNC packet and 2)received block data 
-      Serial.print("      RX BLK# ");       Serial.print(from);
-      Serial.print(" Length");       Serial.print(" = ");       Serial.print(len);
-      Serial.print("bytes  TX-RX-TX-RX time = ");  
-      Serial.print(millis() - gdebugRXtime); Serial.print(" msecs");
-      Serial.println();
-     // if (VerbosePrintCommsDATA){
-        Serial.print(((DATA*)buf) -> sCellV_Hiside ); Serial.print(" VDC Hi Cell   ");
-        Serial.print(((DATA*)buf) -> sThottest); Serial.print(" Hot NTC counts   ");
-        Serial.print(((DATA*)buf) -> sTcoldest); Serial.print(" Cold NTC counts   ");
-        Serial.print(((DATA*)buf) -> sCellV_Loside ); Serial.print(" VDC Lo Cell   ");
-        Serial.print(((DATA*)buf) -> schecksum ); Serial.println(" Checksum from BLOCK");
-      //}
-      Goodcomms = true;
-    }
+  if(rh_rh24_datagram.recvfromAck(buf, &len, &from)){
+    // we are here becase we 1)sent a short ACK-SYNC packet and 2)received block data 
+    Serial.print("      RX BLK# ");       Serial.print(from);
+    Serial.print(" Length");       Serial.print(" = ");       Serial.print(len);
+    Serial.print("bytes  TX-RX-TX-RX time = ");  
+    Serial.print(millis() - gdebugRXtime); Serial.print(" msecs");
+    Serial.println();
+    // if (VerbosePrintCommsDATA){
+      Serial.print(((DATA*)buf) -> sCellV_Hiside ); Serial.print(" VDC Hi Cell   ");
+      Serial.print(((DATA*)buf) -> sThottest); Serial.print(" Hot NTC counts   ");
+      Serial.print(((DATA*)buf) -> sTcoldest); Serial.print(" Cold NTC counts   ");
+      Serial.print(((DATA*)buf) -> sCellV_Loside ); Serial.print(" VDC Lo Cell   ");
+      Serial.print(((DATA*)buf) -> schecksum ); Serial.println(" Checksum from BLOCK");
+    //}
+    Goodcomms = true;
+  }
 }
 
-#pragma endregion COMMS
+#pragma endregion RF24
 
-// ****************************************************************************LEARN BLOCKS
-#pragma region LEARN BLOCKS
+// ****************************************************************************EEPROM SETUP
+#pragma region EEPROM
 const byte LEARN_TIMEOUT = 2;       // learn mode timeout after 2 minutes after power up
 //uint8_t blockNum[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // the array of 10 blocks for FIDO, this will have to be user configurable
 uint8_t blockNum[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // Change for Kents Bug
@@ -411,18 +441,73 @@ const float VPACK_HI_CHG_LIMIT = NUMBER_OF_S_CELLS * cell.volt_HVD;    // do not
 uint16_t gTempPot;       // current potentiomenter
 float gAmps;              // amps plus and minus through LEM sensor
 
-    
 // declare global vars
 //const float EEPROM_CHG_SENSOR_OFFSET = 3094.8;  //3103;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
 const float EEPROM_CHG_SENSOR_OFFSET = 3094.77;  //3103;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
 uint16_t EEPROM_DISCH_SENSOR_OFFSET = EEPROM_CHG_SENSOR_OFFSET;       // save offset from 2.50V at this address (0-4096 counts) - start with 2.500V exactly
 float LEM_Offset = EEPROM_CHG_SENSOR_OFFSET; // starting value
 
-
-
 bool LEARNBLOCKS = false;   // Learn blocks is turned on by "CONNECT" switch
 byte tempx = 0;
-#pragma endregion LEARN BLOCKS
+
+/**
+ * @brief EEPROM initialization
+ *        retreive EEPROM contents into RAM for Block comms - in other words...
+ *        "retreived blocks that pack supervisor learned was connected"
+ */
+void initEEPROM(){
+
+  byte storedValue;
+
+  // retreive EEPROM contents
+  for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+    storedValue = EEPROM.read(i);
+    blockNum[i] = storedValue;
+    Serial.print("EEPROM: "); Serial.print(blockNum[i]); Serial.print(" DKBlock: "); Serial.println(storedValue);
+  }
+}
+
+#pragma endregion EEPROM
+
+// ****************************************************************************LIMP MODE SETUP
+#pragma region LIMP MODE
+/**
+ * @brief Limp Mode initialization
+ * 
+ */
+void initLimpMode(){
+  // only turn LIMP mode off at power cycle 
+  digitalWrite(OUTPUT_LIMP_PIN, LOW);
+  Serial.println("'Limp Mode'  is off because DK is being reset ");
+}
+
+/**
+ * @brief Limp Mode Management
+ *        only turn LIMP mode off at power cycle or keyswitch cycle (improvement limp latch) 
+ *        Jul 12, 2017
+ */
+void manageLimpMode(){
+  if ((TempV < 200) || (Hist_Highest_Tcell < NTC_57C)) {    // Check temperatures for out of safe range
+    if (seconds > 10) digitalWrite(OUTPUT_LIMP_PIN, HIGH);      // Give time after startup for vpack to settle
+  }
+  else if (digitalRead(INPUT_KEYSWITCH_PIN) != LOW) {           // Check for power cycle
+    digitalWrite(OUTPUT_LIMP_PIN, LOW);                         // Set LIMP off
+    Serial.println(F("Limp: OFF -> Keyswitch: ON/OFF CYCLE"));
+  }
+  if (digitalRead(OUTPUT_LIMP_PIN) == 0) {                      // Check for LIMP off
+    Serial.println(F("Limp: OFF -> SOC > 20% and CELL TEMP ▼60C"));
+  }
+  else {                                                        // LIMP is on
+    if (Hist_Highest_Tcell < NTC_57C){
+      Serial.println(F("Limp: ON -> CELL TEMP ▲57C"));
+    }
+    else{
+      Serial.println(F("Limp: ON -> SOC < 20% -> Keyswitch: NOT CYCLED"));
+    }
+  }
+}
+
+#pragma endregion LIMP MODE
 
 // ****************************************************************************RELAY ON OFF CHARGER
 #pragma region ON OFF CHARGER
@@ -435,7 +520,55 @@ byte tempx = 0;
 // ****************************************************************************ANALOG CHARGER
 #pragma region ANALOG CHARGER
 #ifdef CHARGER_ANALOG_DAC2
-  const byte CHARGER_CONTROL = PWM2_DAC2;      // 0-2-5V output for charger control near balance (FIDO is 2-5V = 0-100% linear charge)
+
+  /**
+   * @brief Analog Charger Init
+   *        0-2-5V output for charger control near balance
+   */
+  void initChargerAnalog(){
+    analogWrite(PWM2_DAC2_PIN, 0);     // prog CHG current to 0
+  }
+
+  /**
+   * @brief Analog Charger Manager
+   *        control charger current with DAC2
+   */
+  void manageChargerAnalog(){
+    float TargetI;        //Amps
+    const int FULL_CHARGE_RATE = 1060 / 2;  // full charge rate = 5V out for Elcon charger control
+    uint16_t FullChargeCurrent = 30;      // 30 amps full chg for FIDO
+    const int STARTING_CHARGE_RATE = 1023 / 5; // zero charge rate to start - below 2V is 0 charge rate for Elcon PFC charger
+    //const float BEGIN_BALANCEV = 4.0;
+    float BalanceChargeCurrent = 0.20;  // 200ma charge currrent for balance, cell balancers are running at 250ma
+    //Vcell_Balance
+
+    // 100% charge rate to 4VPC, 100ma from there on,  default to 50% charge rate
+    // if ((Hist_Highest_Vcell < Vcell_Balance) && (Vpack < Vpack_HVD )) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
+    if((Hist_Highest_Vcell < cell.volt_Balance) && (Vpack < (cell.volt_Balance * NUMBER_OF_S_CELLS))){
+      TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
+    } 
+    else{
+      TargetI = BalanceChargeCurrent;                     // 200ma charge rate from there up to keep cells balanced
+    }
+    if (Print_Flag){  
+      Serial.print(" Target Charge amps: ");    Serial.print(TargetI, 2);
+      Serial.print(" Actual Charge amps: ");    Serial.println(gAmps, 2);
+    }
+    
+    // init current pot
+    if(dkMode != DK_CHARGE){
+      gTempPot = STARTING_CHARGE_RATE;
+    }
+    else{
+      if((gAmps > TargetI) && (gTempPot > 0)) gTempPot--;
+      if((gAmps < TargetI) && (gTempPot < FULL_CHARGE_RATE)) gTempPot++;
+      // do nothing if they are equal
+    }
+
+    analogWrite(PWM2_DAC2_PIN, gTempPot);     // PWM2_DAC2_PIN = DAC2 == CHG control 3-5V = 0-100%
+
+    if (Print_Flag){ Serial.print(" Charger control setting: ");    Serial.print(gTempPot);  Serial.println(" out of 1024: ");}
+  }
 
 #endif
 #pragma endregion ANALOG CHARGER
@@ -474,7 +607,7 @@ byte tempx = 0;
   	@brief  initialization of the Blue My Sky CAN BUS Charger
   */
   /**************************************************************************/
-  void initBmsCAN(void){
+  void initChargerBlueMySkyCAN(void){
     Can0.begin(250000);                         // join CAN at 250Kbps
     CAN_filter_t Filter;                        // CAN filter struct
     Filter.id = 0;                              // dont filter any Rx messages
@@ -494,7 +627,7 @@ byte tempx = 0;
     @param on_off turn charger on or off
   */
   /**************************************************************************/
-  void bmsCANSend(uint32_t id, uint16_t  cV, uint16_t cC, bool on_off){
+  void chargerBlueMySkyCANSend(uint32_t id, uint16_t  cV, uint16_t cC, bool on_off){
     CAN_message_t hold;
     hold.id = id;                                                    // set id
     hold.ext = 1;                                                    // set message as extended
@@ -527,7 +660,7 @@ byte tempx = 0;
     @param CAN_message_t incomming message
   */
   /**************************************************************************/
-  bool bmsCANReceive(struct CAN_message_t &hold){
+  bool chargerBlueMySkyCANReceive(struct CAN_message_t &hold){
     if(Can0.available()) {
       Can0.read(hold);
   
@@ -552,13 +685,13 @@ byte tempx = 0;
   	@brief Blue My Sky Charger Manager - Manages all communication when called
   */
   /**************************************************************************/
-  void blueMySkyChargerManager(){
+  void manageChargerblueMySky(){
     // CAN bus controlled charger with a min output of 1A and a Max of 20A @ 240VAC
     // send message at set speed (1 per sec default)
     if(Tx_counter >= Tx_msg_interval) {
       Tx_counter = 0;                                   // reset counter
       bool rxFlag = 0;
-      rxFlag = bmsCANReceive(rxMsg);                    // check for messages
+      rxFlag = chargerBlueMySkyCANReceive(rxMsg);                    // check for messages
       // if message, convert hex bytes into float
       if(rxFlag == 1 && rxMsg.id == CHARGER_BROADCAST){
         bmsVoltageStatus = ((uint8_t)(rxMsg.buf[0]) <<8 | (uint8_t)(rxMsg.buf[1]));
@@ -605,7 +738,7 @@ byte tempx = 0;
       #endif
       if(Hist_Lowest_Tcell >= cell.temp_under_chargeSoftCut || Hist_Highest_Tcell <= cell.temp_over_chargeSoftCut ||
       Hist_Lowest_Vcell <= cell.volt_low_chargeCut || Hist_Highest_Vcell >= cell.volt_high_chargeCut){
-        bmsCANSend(BMS_TO_CHARGER, 0, 0, OFF);
+        bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, 0, 0, OFF);
         bmsChargeStatus = BMS_DO_NOT_CHARGE;
       }
       // inside of safe operating range? CHARGE
@@ -635,38 +768,38 @@ byte tempx = 0;
         // if statements above set charge status, switch statement sends data to charger
         switch (bmsChargeStatus) {
               case BMS_TRICKLE:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsTrickleCurrent, ON);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsTrickleCurrent, ON);
                 break;
               case BMS_BULK_FULL:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsMaxCurrent, ON);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsMaxCurrent, ON);
                 break;
               case BMS_BULK_HALF:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 2), ON);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 2), ON);
                 break;
               case BMS_BULK_QUARTER:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 4), ON);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, (bmsMaxCurrent / 4), ON);
                 break;
               case BMS_TOP_UP:
                 // cycles charger on and off because charger resolution is not able to provide under 1A
                 if(bmsTopUpCounter < 25000){
-                  bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, ON);
+                  bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, ON);
                 }
                 else{
-                  bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                  bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
                 }
                 if(bmsTopUpCounter > 60000){
                   bmsTopUpCounter = 0;
                 }
                 break;
               case BMS_PAUSE:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
                 break;
               case BMS_COMPLETE:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
                 gCharge_Timer = bmsChargeDelay;
                 break;
               default:
-                bmsCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
+                bmschargerBlueMySkyCANSend(BMS_TO_CHARGER, bmsVoltage, bmsEndCurrent, OFF);
                 break;
         }
       }
@@ -691,44 +824,35 @@ byte tempx = 0;
   	@brief Voltage based KOSO DL03 Manager, Outputs on CON7 (Fuel Gauge) Pin 4
   */
   /**************************************************************************/
-  void kosoDL03Manager(){
-  if (SOCv >= 20) analogWrite(DAC_OUT_FUEL_GAUGE, KOSO_ONE_BARS);    // Need equiv of 14% PWM for 1 bars
-  else            analogWrite(DAC_OUT_FUEL_GAUGE, KOSO_NO_BARS);     // No bars give *some* signal
-  if (SOCv >= 40) analogWrite(DAC_OUT_FUEL_GAUGE, KOSO_TWO_BARS);    // Need equiv of 18% PWM for 2 bars
-  if (SOCv >= 60) analogWrite(DAC_OUT_FUEL_GAUGE, KOSO_THREE_BARS);  // Need equiv of 22% PWM for 3 bars
-  if (SOCv >= 80) analogWrite(DAC_OUT_FUEL_GAUGE, KOSO_FOUR_BARS);   // Need equiv of 26% PWM for all 4 bars
+  void manageKosoDL03(){
+  if (SOCv >= 20) analogWrite(DAC_FUEL_GAUGE_PIN, KOSO_ONE_BARS);    // Need equiv of 14% PWM for 1 bars
+  else            analogWrite(DAC_FUEL_GAUGE_PIN, KOSO_NO_BARS);     // No bars give *some* signal
+  if (SOCv >= 40) analogWrite(DAC_FUEL_GAUGE_PIN, KOSO_TWO_BARS);    // Need equiv of 18% PWM for 2 bars
+  if (SOCv >= 60) analogWrite(DAC_FUEL_GAUGE_PIN, KOSO_THREE_BARS);  // Need equiv of 22% PWM for 3 bars
+  if (SOCv >= 80) analogWrite(DAC_FUEL_GAUGE_PIN, KOSO_FOUR_BARS);   // Need equiv of 26% PWM for all 4 bars
   }
 #endif
 #pragma endregion KOSO DL03
 
-
 // ****************************************************************************APPLICATION SETUP
 void setup() {
-  // Setup Serial Comms
+  // setup serial
   Serial.begin(115200);
-  // delay(2000);
+  //delay(2000);
 
-  // Setup microcontroller
+  // setup microcontroller
   initBoard();
 
-  // nRF24 2.4Mhz packet comms
-  if (!manager.init())
-  {
-    Serial.println("Comms init failed");
-    manager.init();     // and try again if not the first time
-  }
-  else   Serial.println("Comms init success");
-
-  analogWrite(CHARGER_CONTROL, 0);     // prog CHG current to 0
+  // setup limp mode
+  initLimpMode();
 
   Serial.println("1: Green LED1 ");
-    watchdogReset();  // reset the watchdog timer
-
+  watchdogReset();  // reset the watchdog timer
   digitalWrite(LED1_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
   Serial.println("1: then go RED ");
   digitalWrite(LED1_GREEN_PIN, LOW);
-   watchdogReset();  // reset the watchdog timer
- digitalWrite(LED1_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
+  watchdogReset();  // reset the watchdog timer
+  digitalWrite(LED1_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
   Serial.println("2: Green LED2");
   watchdogReset();  // reset the watchdog timer
   digitalWrite(LED2_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
@@ -742,6 +866,12 @@ void setup() {
   digitalWrite(LED2_GREEN_PIN, LOW);
   digitalWrite(LED2_RED_PIN, LOW);
 
+  // setup comms
+  initRF24();
+  
+  // setup EEPROM
+  initEEPROM();
+
   // save all vars until blocks are awake and comms are established
   Highest_Vcell = cell.volt_Nominal;        // load  vars with nominal values
   Lowest_Vcell = cell.volt_Nominal;
@@ -752,54 +882,8 @@ void setup() {
   Hist_Highest_Tcell = NTC_AMBIENT;     // running ave of ALL blocks highest cell temperature (seed with nominal 25C)
   Hist_Lowest_Tcell = NTC_AMBIENT;     // seed with nom 25C
 
-
-  // Retreive EEPROM contents into RAM for Block comms - in other words...
-  // "retreived blocks that pack supervisor learned was connected"
-
-  int EE_address = 0;
-  byte EE_value;          // block number that is stored in EE_address
- // for (EE_address = 0; EE_address < 10; EE_address++)   
-  for (EE_address = 0; EE_address < NUMBER_OF_BLOCK_MANAGERS; EE_address++)   // change from 10 to 20 blocks for Kents bug
-  {
-    EE_value = EEPROM.read(EE_address);   // read for print debug
-    blockNum[EE_address] = EE_value;      // READ EEprom at power up
-    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-   Serial.print("READ from EEprom address:  ");  Serial.print(blockNum[EE_address]);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-//    Serial.print("READ from EEprom address:  ");  Serial.print(EE_address);   Serial.print(" = Block#: ");  Serial.println(EE_value);
-  }
-
-
-
-  // default RF24 manager settings are 2000ms timeout and 3 retries. Timeout can be 2x to avoid collisions. These are too long for COP, and we don't want
-  // COP reset in comm routine in case the program hangs in that code... (*just* barely works at 110ms/3 retries, and 50ms/9)
- // manager.setTimeout(2000); //these were production values
- // manager.setRetries(3);
- // manager.setTimeout(10);   // these are debug values
- // manager.setRetries(1);    // 1 retry is 2 tries total
-    manager.setTimeout(20);   // these are final values for fastest comms
-    manager.setRetries(0);    // 0 = 1 try only
-
-  //TIM ADD SPEED AND BPS and all other RF24 settings here and inBLOCK CODE!!!!!!!!!!!!
-  //manager.setPayloadSize(12);     // 2 floats (4x2 bytes) = 8bytes +  2 + 2 = 12 bytes MUST AGREE WITH CLIENTS!!
-
-
   Serial.println("Start Pack Supervisor now... ");
   Serial.print(" Pack Address: ");   Serial.println(SERVER_ADDRESS);
-
-  
-  
-
-  // only turn LIMP mode off at power cycle 
-    digitalWrite(OUTPUT_LIMP_PIN, LOW);
-    Serial.println("'Limp Mode'  is off because DK is being reset ");
-
-
 }
 
 // ****************************************************************************APPLICATION MAIN
@@ -817,8 +901,8 @@ void loop() {
 
   // make clock tick tock
   currentmicros = micros(); // read the time.
-  bool Comm_Flag = 0;
-  bool Print_Flag = 0;
+  Comm_Flag = 0;
+  Print_Flag = 0;
 
   // when 1000 millisecond clock ticks, run real time clock
   if ((currentmicros - nextmicros) >= interval)  // if 1000000 microseconds have gone by...
@@ -1308,13 +1392,6 @@ throwaway_c:  ;
      Serial.print(" Low temp limit = "); Serial.println(cell.temp_under_chargeRelayCut);
     } 
     
-
-  // new 7/19/2019
-
-
-
-
-  
   // cell temperature check, make limp mode => 60C, relay open at 63C
   //if (Hist_Highest_Tcell < NTC_63C) {
   //    relay_drive_state = OFF;               // cell >63C so turn off motor and charger relays
@@ -1369,45 +1446,8 @@ throwaway_c:  ;
   }
 
 
-  // control charger current with DAC2
-  float TargetI;        //Amps
-  const int FULL_CHARGE_RATE = 1060 / 2;  // full charge rate = 5V out for Elcon charger control
-  uint16_t FullChargeCurrent = 30;      // 30 amps full chg for FIDO
-  const int STARTING_CHARGE_RATE = 1023 / 5; // zero charge rate to start - below 2V is 0 charge rate for Elcon PFC charger
-  //const float BEGIN_BALANCEV = 4.0;
-  float BalanceChargeCurrent = 0.20;  // 200ma charge currrent for balance, cell balancers are running at 250ma
-  //Vcell_Balance
-
-  // 100% charge rate to 4VPC, 100ma from there on,  default to 50% charge rate
- // if ((Hist_Highest_Vcell < Vcell_Balance) && (Vpack < Vpack_HVD )) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
-  if ((Hist_Highest_Vcell < cell.volt_Balance) && (Vpack < (cell.volt_Balance * NUMBER_OF_S_CELLS))) TargetI = FullChargeCurrent; // Full charge rate to 90% or 4.000V
-  else
-  {
-    TargetI = BalanceChargeCurrent;                     // 200ma charge rate from there up to keep cells balanced
-  }
-      if (Print_Flag){  
-      Serial.print(" Target Charge amps: ");    Serial.print(TargetI, 2);
-      Serial.print(" Actual Charge amps: ");    Serial.println(gAmps, 2);
-      }
-    
-    
-  // init current pot
-  if (dkMode != DK_CHARGE) gTempPot = STARTING_CHARGE_RATE;
-  else //charge control fix Apr 2017
-  {
-    if ((gAmps > TargetI) && (gTempPot > 0)) gTempPot--;
-    if ((gAmps < TargetI) && (gTempPot < FULL_CHARGE_RATE)) gTempPot++;
-    // do nothing if they are equal
-  }
-  analogWrite(CHARGER_CONTROL, gTempPot);     // PWM2_DAC2 = DAC2 == CHG control 3-5V = 0-100%
-    //charge control fix Apr 2017
+  manageChargerAnalog();
   
-  if (Print_Flag){ Serial.print(" Charger control setting: ");    Serial.print(gTempPot);  Serial.println(" out of 1024: ");}
-
-  
-    
-  
-
 
   // Average SOCv over minutes (improvement) - Jul 12, 2017
   if ((relay_drive_state == false) && (relay_charge_state == false)) gSOCv = Vpack/2 ;           // both motor and charger relays are off == init SOC == Vpack
@@ -1445,52 +1485,24 @@ throwaway_c:  ;
   if (Vpack < Vpack_LVD) TempV = 0;   // change for kents bug
   
   if (TempV > MAX_PWM) TempV = MAX_PWM;    // 10 bit resolutioin - 1024 Max
-  analogWrite(PWM1_DAC1, TempV);     // PWM1_DAC1 ==DAC1 == SOC output
-  // analogWrite(PWM2_DAC2, TempV);     // PWM2_DAC2 = DAC2 == CHG control
+  analogWrite(PWM1_DAC1_PIN, TempV);     // PWM1_DAC1_PIN ==DAC1 == SOC output
+  // analogWrite(PWM2_DAC2_PIN, TempV);     // PWM2_DAC2_PIN = DAC2 == CHG control
  
   
   SOCv = (TempV / 1024) * 100;
   //if (VerbosePrintSUPERDATA)
   {
-    Serial.print(" PWM1_DAC1 Counts (SOC): ");     Serial.print(TempV, 0);
+    Serial.print(" PWM1_DAC1_PIN Counts (SOC): ");     Serial.print(TempV, 0);
     Serial.print(" SOC: ");     Serial.print(SOCv);  Serial.println ("%");
   }
     
-  
-
-  // Give "limp mode" signal (+3.3 logic high) at hot cells(57C)
-  //if ((TempV < 200) || (Hist_Highest_Tcell < NTC_60C))
-  if ((TempV < 200) || (Hist_Highest_Tcell < NTC_57C))
-  {
-    //digitalWrite(OUTPUT_LIMP_PIN, HIGH);
-    if (seconds > 10) digitalWrite(OUTPUT_LIMP_PIN, HIGH); //do well after startup to give time for vpack to settle
-  }
-    else if (digitalRead(INPUT_KEYSWITCH_PIN) != 0)
-  { 
-    digitalWrite(OUTPUT_LIMP_PIN, LOW);
-  }
-  if (Goodcomms){   // print data only when block data is in
-  //if (VerbosePrintSUPERDATA)
-    {
-      if (digitalRead(OUTPUT_LIMP_PIN) == 0) Serial.println("'Limp Mode' is off because of because SOC > 20% and cell temp < 60C");
-      else {    
-        if (Hist_Highest_Tcell < NTC_57C) Serial.println("'Limp Mode'  is on because Cell temp is over 60C");
-        else  Serial.println("'Limp Mode'  is on because SOC is at or under 20% - and keyswitch has not reset this condition");
-      }
-      // only turn LIMP mode off at power cycle or keyswitch cycle (improvement limp latch) Jul 12, 2017
-   }
-  }
- // Serial.println();
-
-
-
-
+  manageLimpMode();
 
   // nRF24 2.4Mhz packet comms - send ACK SYNC packet from PS then receive block data
 
 
    // new 7/11/2019 - change freq for each block - each block gets its own freq channel
-   driver.setChannel(gBlockNumber);     // change channel on each block to equal it's block address
+   rh_rf24.setChannel(gBlockNumber);     // change channel on each block to equal it's block address
    //Serial.print(" driver.setChannel(gBlockNumber) =  "); Serial.println(gBlockNumber); 
    // new 7/11/2019
 
@@ -1550,14 +1562,14 @@ throwaway_c:  ;
     // accurate syncronising here - every 50msecs
  
     // send ACK TRIGGER to each Block, one at a time to make them send Block data
-    manager.sendtoWait((uint8_t*)&ACKSyncpacket, sizeof(ACKSyncpacket), RH_BROADCAST_ADDRESS);  // WORKS faster because broadcast doesn't wait for ACK!!
+    rh_rh24_datagram.sendtoWait((uint8_t*)&ACKSyncpacket, sizeof(ACKSyncpacket), RH_BROADCAST_ADDRESS);  // WORKS faster because broadcast doesn't wait for ACK!!
     
  //debug
  //delay(20);  // ALLOW 50 msecs between block receptions (main takes ~20ms)
   
   Goodcomms = false;    // default is there is no new data
 // Check if block data is in yet  // <available> function code is in RH_NRF24.cpp file
-  if (manager.available()){
+  if (rh_rh24_datagram.available()){
  
     GetBlockData();
   }
@@ -1733,7 +1745,7 @@ exitsaveblock:
       CommsFaults = 0;
       Serial.print("Comms faults = "); Serial.print(CommsFaults);
       // since we have high comms faults, reint hardware
-      manager.init();
+      rh_rh24_datagram.init();
       SPI.begin();  
     }
 
@@ -1803,7 +1815,7 @@ exitsaveblock:
 //badcomm:       // bad comm bytes end up here...
 
   #ifdef KOSO_DL03
-    kosoDL03Manager();
+    manageKosoDL03();
   #endif
 
   // Block awareness: check to see which blocks are talking, over a 100 sec window
