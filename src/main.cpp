@@ -1,7 +1,7 @@
 // DK Supervisor PCB production code for Teensy 3.2
 // Compiled with VS Code and PlatformIO
 
-#define VERSION 0123   // EXAMPLE: 5215 = 52th week of 2015
+#define VERSION 123   // EXAMPLE: 5215 = 52th week of 2015
 
 // ****************************************************************************CONFIGURATION
 /*
@@ -80,11 +80,15 @@
 #include <SPI.h>                    // https://github.com/PaulStoffregen/SPI
 #include <EEPROM.h>                 // https://github.com/PaulStoffregen/EEPROM
 #include <elapsedMillis.h>          // https://github.com/pfeerick/elapsedMillis
+#include <TeensyID.h>               // https://github.com/sstaub/TeensyID
 
 #include <NCP18.h>                  // NTC to 12bit ADC Reference
 #include <celltypes.h>              // Cell Specifcations
 
 // ****************************************************************************DEBUG
+// Wait for serial connection (will reset untill serial port is connected)
+  #define WAIT_FOR_SERIAL
+
 // debug serial out is not delayed
   //#define CHARGER_DEBUG
   //#define CAN_DEBUG
@@ -95,69 +99,7 @@ bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintCommsDATA = PRINT ;
 bool Print_Flag = 0;
 
-// ****************************************************************************APPLICATION VAR
-#pragma region APP
-  // app states
-#define DK_SLEEP    0
-#define DK_PAUSE    1
-#define DK_CHARGE   2
-#define DK_DRIVE    3
-uint8_t dkMode = DK_SLEEP; // default to sleep
-
-  // fault states
-#define ERROR_NOFAULT         0
-#define ERROR_OVERTEMP        1
-#define ERROR_UNDERTEMP       2
-#define ERROR_OVERVOLT_BLOCK  3
-#define ERROR_OVERVOLT_CELL   4
-#define ERROR_UNDERVOLT_BLOCK 5
-#define ERROR_UNDERVOLT_CELL  6
-#define ERROR_DEADV_BLOCK     7
-#define ERROR_DEADV_CELL      8
-uint8_t  dkError = ERROR_NOFAULT; // default to no faults
-
-bool relay_charge_state = 0;
-bool relay_drive_state  = 0;
-const int pwm_freq = 40000;
-const int FULLPWMRANGE = 1000;
-  // structures
-struct celltypes cell;
-
-const float HYSTERESIS = 0.4;    // provide hysteresis to prevent relay chatter and oscillation
-int sensorValue = 0;        // value read from the ADC input
-
-float Vnominal = NUMBER_OF_S_CELLS * cell.volt_Nominal; // Nominal pack voltage with cells at Vnom
-
-float Vpack = Vnominal;  // start with nominal battery voltage
-float gSOCv = Vnominal;   // init with a nominal value
-
-// output SOC signal from op amp PWM - digital DAC outputs
-  // 60-80V Vpack ==> 0-100% for now, VOLTAGE IS NOT A GOOD FUEL GAUAGE, but ...
-  //  120-160 Vpack ==> 0-100% for now...OK till we have something better.
-  float TempV = Vnominal;    // temp pack Volts for SOC computations
-  int SOCv;     // SOC based on voltage
-  const int MAX_PWM = 1023;
-  //const int MIN_PWM = 1;
-
-  // serial ouput
-elapsedMillis serialDelayTimer  = 0;    // limits the serial out put to make it more readable
-uint16_t      serialDelay       = 1000; // in milliseconds
-
-  // software real time clock vars
-unsigned long currentmicros = 0;
-unsigned long nextmicros = 0;
-unsigned long interval = 1000278UL; // about 1000000 uS (increase constant to slow clock)
-int seconds = 0;                    // at reset, set clock to 0:00:00
-int minutes = 0;
-int hours = 0;                      // at reset, set clock to 0:00:00
-uint16_t gCharge_Timer = 0;         // default to zero for delay timer
-int ModeTimer = 0;                  // use for off timer = 10 mins get set later
-byte T_MODECHECK = 10;              // update historical vars every minute for a 10 min running average
-const int T_HISTORYCHECK = 1;       // update historical vars every 1 secs
-int HistoryTimer = T_HISTORYCHECK;
-#pragma endregion APP
-
-// ****************************************************************************WATCHDOG SETUP
+// ****************************************************************************WATCHDOG
 #pragma region WD
 /**
  * @brief Watchdog Timer
@@ -166,7 +108,7 @@ int HistoryTimer = T_HISTORYCHECK;
  * Must be before void setup();
  */
 
-#define WATCHDOG_MILLISECONDS 1000
+#define WATCHDOG_MILLISECONDS 1500
 
 extern "C" void startup_early_hook(void);
 
@@ -197,7 +139,7 @@ void watchdogReset() {
 
 #pragma endregion WD
 
-// ****************************************************************************DK BOARD SETUP
+// ****************************************************************************DK BOARD
 #pragma region DKBOARDSETUP
 #ifdef DK_SUPER_HW_V1
     // switch pins
@@ -254,6 +196,8 @@ void watchdogReset() {
 #define SAMPLES (200)                   // how many samples to use for ADC read - 200 seemed to work best   
 #define ADC_RESOLUTION (12)             // ADC resolution in bits, usable from 10-13 on this chip
 #define DAC_RESOLUTION (10)             // DAC resolution in bits, usable from 0-12 on this chip (same setup as PWM outputs)
+#define PWM_FREQ        40000
+#define FULL_PWM_RANGE  1000
 
 /**************************************************************************/
 /*!
@@ -299,7 +243,7 @@ void initBoard(){
   pinMode(UNUSED_A33_PIN, OUTPUT);
 
   // configure the ADC - Teensy PWM runs at 23kHz, DAC value is 0 to 1023
-  analogWriteFrequency(PWM1_DAC1_PIN, pwm_freq); 
+  analogWriteFrequency(PWM1_DAC1_PIN, PWM_FREQ); 
   analogWriteResolution(DAC_RESOLUTION);
 
   analogReference(EXTERNAL);      // set analog reference to ext ref
@@ -308,7 +252,134 @@ void initBoard(){
 
 #pragma endregion DKBOARDSETUP
 
-// ****************************************************************************RADIO HEAD RF24 SETUP
+// ****************************************************************************APPLICATION
+#pragma region APP
+  // app states
+#define DK_STARTUP  0
+#define DK_SLEEP    1
+#define DK_PAUSE    2
+#define DK_CHARGE   3
+#define DK_DRIVE    4
+uint8_t dkMode = DK_STARTUP; // default to sleep
+
+  // fault states
+#define ERROR_NOFAULT         0
+#define ERROR_OVERTEMP        1
+#define ERROR_UNDERTEMP       2
+#define ERROR_OVERVOLT_BLOCK  3
+#define ERROR_OVERVOLT_CELL   4
+#define ERROR_UNDERVOLT_BLOCK 5
+#define ERROR_UNDERVOLT_CELL  6
+#define ERROR_DEADV_BLOCK     7
+#define ERROR_DEADV_CELL      8
+uint8_t  dkError = ERROR_NOFAULT; // default to no faults
+
+bool relay_charge_state = 0;
+bool relay_drive_state  = 0;
+
+uint8_t teensySerial[4];
+
+  // structures
+struct celltypes cell;
+
+const float HYSTERESIS = 0.4;    // provide hysteresis to prevent relay chatter and oscillation
+int sensorValue = 0;        // value read from the ADC input
+
+float Vnominal = NUMBER_OF_S_CELLS * cell.volt_Nominal; // Nominal pack voltage with cells at Vnom
+
+float Vpack = Vnominal;  // start with nominal battery voltage
+float gSOCv = Vnominal;   // init with a nominal value
+
+// output SOC signal from op amp PWM - digital DAC outputs
+  // 60-80V Vpack ==> 0-100% for now, VOLTAGE IS NOT A GOOD FUEL GAUAGE, but ...
+  //  120-160 Vpack ==> 0-100% for now...OK till we have something better.
+  float TempV = Vnominal;    // temp pack Volts for SOC computations
+  int SOCv;     // SOC based on voltage
+  const int MAX_PWM = 1023;
+  //const int MIN_PWM = 1;
+
+  // serial ouput
+elapsedMillis serialDelayTimer  = 0;    // limits the serial out put to make it more readable
+uint16_t      serialDelay       = 1000; // in milliseconds
+
+  // software real time clock vars
+unsigned long currentmicros = 0;
+unsigned long nextmicros = 0;
+unsigned long interval = 1000278UL; // about 1000000 uS (increase constant to slow clock)
+int seconds = 0;                    // at reset, set clock to 0:00:00
+int minutes = 0;
+int hours = 0;                      // at reset, set clock to 0:00:00
+uint16_t gCharge_Timer = 0;         // default to zero for delay timer
+int ModeTimer = 0;                  // use for off timer = 10 mins get set later
+byte T_MODECHECK = 10;              // update historical vars every minute for a 10 min running average
+const int T_HISTORYCHECK = 1;       // update historical vars every 1 secs
+int HistoryTimer = T_HISTORYCHECK;
+
+/**
+ * @brief LED initialization
+ * An animation sequence to indicate startup
+ */
+void initLEDTest(){
+  watchdogReset();
+  
+  // keep this function shorter then "WATCHDOG_MILLISECONDS"
+  const int delay_lenght = 250;
+  digitalWrite(LED1_GREEN_PIN, HIGH);   
+  delay(delay_lenght);
+  digitalWrite(LED1_GREEN_PIN, LOW);
+  digitalWrite(LED2_GREEN_PIN, HIGH);
+  delay(delay_lenght);
+  digitalWrite(LED2_GREEN_PIN, LOW);
+  digitalWrite(LED1_RED_PIN, HIGH);
+  delay(delay_lenght);
+  digitalWrite(LED1_RED_PIN, LOW);
+  digitalWrite(LED2_RED_PIN, HIGH);
+  delay(delay_lenght);
+  digitalWrite(LED2_RED_PIN, LOW);
+  delay(delay_lenght);
+
+  watchdogReset();
+
+  // all leds should be off but just in case
+  digitalWrite(LED1_GREEN_PIN, LOW);
+  digitalWrite(LED1_RED_PIN, LOW);
+  digitalWrite(LED2_GREEN_PIN, LOW);
+  digitalWrite(LED2_RED_PIN, LOW);
+}
+
+/**
+ * @brief Mode Status
+ * 
+ */
+void statusMode(){
+  Serial.println();
+  Serial.print(F("Mode-> "));
+  switch (dkMode){
+  case DK_STARTUP:
+    Serial.println("Startup");
+    break;
+  case DK_SLEEP:
+    Serial.println("Sleep");
+    break;
+  case DK_PAUSE:
+    Serial.println("Pause");
+    break;
+  case DK_CHARGE:
+    Serial.println("Charge");
+    break;
+  case DK_DRIVE:
+    Serial.println("Drive");
+    break;
+  default:
+    Serial.println("Unknown");
+    break;
+  }
+  Serial.println();
+}
+
+#pragma endregion APP
+
+// ****************************************************************************RADIO HEAD RF24
 #pragma region RF24
 bool Comm_Flag =0;
 
@@ -330,22 +401,26 @@ RHReliableDatagram rh_rh24_datagram(rh_rf24, SERVER_ADDRESS);
 //uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];    // buffer = 24 bytes long is max RH packet
 uint8_t buf[DK_MESSAGE_LENGTH];    // buffer = 16 bytes long is max DK packet
 
+uint8_t from;
+
 // comms vars
 uint16_t CommsFaults = 0;
 bool Disconnected_Block = 0;
 uint16_t Disconnected_BlockNum = 0;   // BLock 0 not used - START at Block 1
-float Highest_Vcell;
-float Lowest_Vcell;
-uint16_t Highest_Tcell;
-uint16_t Lowest_Tcell;
+
+// start with nonimal settings
+float Highest_Vcell = cell.volt_Nominal;
+float Lowest_Vcell  = cell.volt_Nominal;
+uint16_t Highest_Tcell = NTC_AMBIENT;
+uint16_t Lowest_Tcell  = NTC_AMBIENT;
 float Temp1 ;
 float Temp2 ;
 uint16_t Temp3 ;
 uint16_t Temp4 ;
-float Hist_Highest_Vcell ;        //  from all blocks of the highest average cell voltage
-float Hist_Lowest_Vcell ;
-float  Hist_Highest_Tcell;     // taken from all blocks - the average of the highest cell temperature
-float  Hist_Lowest_Tcell;
+float Hist_Highest_Vcell = cell.volt_Nominal;        //  from all blocks of the highest average cell voltage
+float Hist_Lowest_Vcell  = cell.volt_Nominal;
+float Hist_Highest_Tcell = NTC_AMBIENT;     // taken from all blocks - the average of the highest cell temperature
+float Hist_Lowest_Tcell  = NTC_AMBIENT;
 unsigned long gdebugRXtime = 0;       // get to get current time from millis()
 bool Goodcomms = false;      // default to NO until good packet is received
 
@@ -394,7 +469,7 @@ void GetBlockData(){
   //float floatmatch = 0.000600; // +/- this amount to allow for matching float math on receive
   //float tempa;    //  float tempb;   //  float tempc;
   uint8_t len = sizeof(buf);
-  uint8_t from;
+  
 
   // Wait here for a message addressed to us from the client
   if(rh_rh24_datagram.recvfromAck(buf, &len, &from)){
@@ -417,7 +492,7 @@ void GetBlockData(){
 
 #pragma endregion RF24
 
-// ****************************************************************************EEPROM SETUP
+// ****************************************************************************EEPROM
 #pragma region EEPROM
 const byte LEARN_TIMEOUT = 2;       // learn mode timeout after 2 minutes after power up
 //uint8_t blockNum[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // the array of 10 blocks for FIDO, this will have to be user configurable
@@ -449,6 +524,9 @@ float LEM_Offset = EEPROM_CHG_SENSOR_OFFSET; // starting value
 
 bool LEARNBLOCKS = false;   // Learn blocks is turned on by "CONNECT" switch
 byte tempx = 0;
+  // prototypes
+void initEEPROM(void);
+void statusEEPROM(void);
 
 /**
  * @brief EEPROM initialization
@@ -456,21 +534,37 @@ byte tempx = 0;
  *        "retreived blocks that pack supervisor learned was connected"
  */
 void initEEPROM(){
-
   byte storedValue;
-
   // retreive EEPROM contents
   for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
     storedValue = EEPROM.read(i);
     blockNum[i] = storedValue;
-    Serial.print("EEPROM: "); Serial.print(blockNum[i]); Serial.print(" DKBlock: "); Serial.println(storedValue);
   }
+
+  statusEEPROM();
+}
+
+/**
+ * @brief Display the stored EEPROM values and current block variable values
+ * 
+ */
+void statusEEPROM(){
+  Serial.println();
+  for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+    Serial.print("EEPROM: "); Serial.print(EEPROM.read(i)); Serial.print(" DKBlock: "); Serial.println(blockNum[i]);
+  }
+  Serial.println();
 }
 
 #pragma endregion EEPROM
 
-// ****************************************************************************LIMP MODE SETUP
+// ****************************************************************************LIMP MODE
 #pragma region LIMP MODE
+  // prototypes
+void initLimpMode(void);
+void statusLimpMode(void);
+void manageLimpMode(void);
+
 /**
  * @brief Limp Mode initialization
  * 
@@ -478,7 +572,18 @@ void initEEPROM(){
 void initLimpMode(){
   // only turn LIMP mode off at power cycle 
   digitalWrite(OUTPUT_LIMP_PIN, LOW);
-  Serial.println("'Limp Mode'  is off because DK is being reset ");
+
+  statusLimpMode();
+}
+
+/**
+ * @brief Limp Status
+ * 
+ */
+void statusLimpMode(){
+  if(dkMode == DK_STARTUP){
+    Serial.println("Limp Mode -> OFF, DK is starting up");
+  }
 }
 
 /**
@@ -836,67 +941,41 @@ void manageLimpMode(){
 
 // ****************************************************************************APPLICATION SETUP
 void setup() {
-  // setup serial
+    // setup serial
   Serial.begin(115200);
-  //delay(2000);
-
-  // setup microcontroller
+  #ifdef WAIT_FOR_SERIAL
+    while (!Serial){}
+  #endif
+    // grab the teensy serial number
+  teensySN(teensySerial);
+    // post to serial general info
+  Serial.println();
+  Serial.print("DK Pack Supervisor - Firmware: "); Serial.println(VERSION);
+  Serial.print("Teensy SN: "); 
+  for (size_t i = 0; i < 4; i++){
+    Serial.print(teensySerial[i]);
+  }
+  Serial.println();
+  Serial.print("Server Address: "); Serial.println(SERVER_ADDRESS);
+  Serial.println();
+    // setup microcontroller
   initBoard();
-
-  // setup limp mode
-  initLimpMode();
-
-  Serial.println("1: Green LED1 ");
-  watchdogReset();  // reset the watchdog timer
-  digitalWrite(LED1_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
-  Serial.println("1: then go RED ");
-  digitalWrite(LED1_GREEN_PIN, LOW);
-  watchdogReset();  // reset the watchdog timer
-  digitalWrite(LED1_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
-  Serial.println("2: Green LED2");
-  watchdogReset();  // reset the watchdog timer
-  digitalWrite(LED2_GREEN_PIN, HIGH);   delay(500);  // LED on for 1 second
-  Serial.println("3: Now go RED ");
-  digitalWrite(LED2_GREEN_PIN, LOW);
-  watchdogReset();  // reset the watchdog timer
-  digitalWrite(LED2_RED_PIN, HIGH);   delay(500);  // LED on for 1 second
-  // wait for slow human to get serial capture running
-  digitalWrite(LED1_GREEN_PIN, LOW); //leds all off
-  digitalWrite(LED1_RED_PIN, LOW);
-  digitalWrite(LED2_GREEN_PIN, LOW);
-  digitalWrite(LED2_RED_PIN, LOW);
-
-  // setup comms
+    // LED test (statup lights)
+  initLEDTest();
+    // setup comms
   initRF24();
-  
-  // setup EEPROM
+    // setup EEPROM
   initEEPROM();
-
-  // save all vars until blocks are awake and comms are established
-  Highest_Vcell = cell.volt_Nominal;        // load  vars with nominal values
-  Lowest_Vcell = cell.volt_Nominal;
-  Highest_Tcell = NTC_AMBIENT;
-  Lowest_Tcell = NTC_AMBIENT;
-  Hist_Highest_Vcell = Highest_Vcell;   // running average of all blocks highest cell v
-  Hist_Lowest_Vcell = Lowest_Vcell;
-  Hist_Highest_Tcell = NTC_AMBIENT;     // running ave of ALL blocks highest cell temperature (seed with nominal 25C)
-  Hist_Lowest_Tcell = NTC_AMBIENT;     // seed with nom 25C
-
-  Serial.println("Start Pack Supervisor now... ");
-  Serial.print(" Pack Address: ");   Serial.println(SERVER_ADDRESS);
+    // setup limp mode
+  initLimpMode();
+  
 }
 
 // ****************************************************************************APPLICATION MAIN
 void loop() {
-
-  if (VerbosePrintSUPERDATA){
-    Serial.print("Firmware Ver: ");  Serial.print(VERSION);
-    Serial.print("  Server Address: ");  Serial.print(SERVER_ADDRESS);
-    Serial.print("  PS Mode: ");  Serial.println(dkMode);
-  }
-  
   watchdogReset();  // reset the watchdog timer (times out in 1 sec so make sure loop is under about 500-600msec)
 
+  statusMode();
  
 
   // make clock tick tock
@@ -1458,7 +1537,7 @@ throwaway_c:  ;
    gSOCv = ((Vpack - Vpack_LVD)*2) ;   
    //gSOCv = (Vpack + (gSOCv * 999)) / 1000.0; // average for noise reduction 
    if (Vpack >= Vpack_LVD) TempV = gSOCv;    // pack is (basically) dead at 2.95V per cell
-   else TempV - 0;
+
    // new 7/16/19
    
    //if (Print_Flag)
@@ -1521,7 +1600,6 @@ throwaway_c:  ;
     uint16_t BlockNumber = gBlockNumber;
     }ACKSyncpacket;
     
-    uint8_t from;
 
  
     // Send rolling block number to ACK SYNC each block in turn
@@ -1586,7 +1664,6 @@ throwaway_c:  ;
   uint8_t PAYLOAD = 16;     // bytes, use for comparing payload, comms will ignore data if wrong PL
   float floatmatch = 0.000600; // +/- this amount to allow for matching float math on receive
   uint8_t len = sizeof(buf);
- // uint8_t from;
   float tempa;    // 4 bytes
   float tempb;
   float tempc;
