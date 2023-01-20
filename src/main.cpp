@@ -92,8 +92,10 @@
 // debug serial out is not delayed
   //#define CHARGER_DEBUG
   //#define CAN_DEBUG
+  //#define SYSTEM_TIME_DEBUG
+
 bool PRINT = 0;   // 0 = no debug print
-bool VerbosePrintBLOCKDATA = PRINT;  // turn on (1) or off verbose prints
+//bool VerbosePrintBLOCKDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintSUPERDATA = PRINT;  // turn on (1) or off verbose prints for supervisor
 bool VerbosePrintEEDATA = PRINT;  // turn on (1) or off verbose prints
 bool VerbosePrintCommsDATA = PRINT ;
@@ -103,7 +105,7 @@ bool Print_Flag = 0;
 #pragma region WD
 /**
  * @brief Watchdog Timer
- * Set one second (it's adjustable with WDOG_T register) watchdog enable  by redefining 
+ * Set reset time with "WATCHDOG_MILLISECONDS". Watchdog enable by redefining 
  * the startup_early_hook which by default disables the COP (TURN OFF WHEN DEBUGGING). 
  * Must be before void setup();
  */
@@ -207,25 +209,25 @@ void watchdogReset() {
 void initBoard(){
   // leds
   pinMode(LED1_GREEN_PIN, OUTPUT);
-  pinMode(LED1_RED_PIN, OUTPUT);
+  pinMode(LED1_RED_PIN,   OUTPUT);
   pinMode(LED2_GREEN_PIN, OUTPUT);
-  pinMode(LED2_RED_PIN, OUTPUT);
+  pinMode(LED2_RED_PIN,   OUTPUT);
 
   // relays
   pinMode(RELAYDR1_CHARGE_PIN, OUTPUT);
-  pinMode(RELAYDR2_DRIVE_PIN, OUTPUT);
+  pinMode(RELAYDR2_DRIVE_PIN,  OUTPUT);
 
   // inputs
   pinMode(SUPERVISOR_TEMP_PIN, INPUT);
 
   // User inputs
-  pinMode(INPUT_CHARGE_PIN, INPUT);
+  pinMode(INPUT_CHARGE_PIN,    INPUT);
   pinMode(INPUT_KEYSWITCH_PIN, INPUT);
-  pinMode(SW1_LEARN_BLKS_PIN, INPUT);
+  pinMode(SW1_LEARN_BLKS_PIN,  INPUT);
 
   // outputs
-  pinMode(PWM1_DAC1_PIN, OUTPUT);
-  pinMode(PWM2_DAC2_PIN, OUTPUT);
+  pinMode(PWM1_DAC1_PIN,   OUTPUT);
+  pinMode(PWM2_DAC2_PIN,   OUTPUT);
   pinMode(OUTPUT_LIMP_PIN, OUTPUT);
 
   // Unused I/O make digital output for low impedance and EMI-resistance
@@ -255,12 +257,18 @@ void initBoard(){
 // ****************************************************************************APPLICATION
 #pragma region APP
   // app states
-#define DK_STARTUP  0
-#define DK_SLEEP    1
-#define DK_PAUSE    2
-#define DK_CHARGE   3
-#define DK_DRIVE    4
+#define DK_STARTUP            0
+#define DK_SLEEP              1
+#define DK_PAUSE              2
+#define DK_CHARGE             3
+#define DK_DRIVE              4
 uint8_t dkMode = DK_STARTUP; // default to sleep
+
+  // relay states
+#define DK_RELAY_OFF          0
+#define DK_RELAY_ON           1
+bool relay_charge_state     = DK_RELAY_OFF;
+bool relay_drive_state      = DK_RELAY_OFF;
 
   // fault states
 #define ERROR_NOFAULT         0
@@ -274,15 +282,16 @@ uint8_t dkMode = DK_STARTUP; // default to sleep
 #define ERROR_DEADV_CELL      8
 uint8_t  dkError = ERROR_NOFAULT; // default to no faults
 
-bool relay_charge_state = 0;
-bool relay_drive_state  = 0;
-
+ // variables
 uint8_t teensySerial[4];
+const float HYSTERESIS = 0.4;    // provide hysteresis to prevent relay chatter and oscillation
+bool Comm_Flag = 0;
+uint8_t Main_Loops = 1;   // at power up use 1 main loop for packet timing to wake up blocks, then change to n loops (start with 12) to insure communication
 
   // structures
 struct celltypes cell;
 
-const float HYSTERESIS = 0.4;    // provide hysteresis to prevent relay chatter and oscillation
+
 int sensorValue = 0;        // value read from the ADC input
 
 float Vnominal = NUMBER_OF_S_CELLS * cell.volt_Nominal; // Nominal pack voltage with cells at Vnom
@@ -303,7 +312,6 @@ elapsedMillis serialDelayTimer  = 0;    // limits the serial out put to make it 
 uint16_t      serialDelay       = 1000; // in milliseconds
 
   // software real time clock vars
-unsigned long currentmicros = 0;
 unsigned long nextmicros = 0;
 unsigned long interval = 1000278UL; // about 1000000 uS (increase constant to slow clock)
 int seconds = 0;                    // at reset, set clock to 0:00:00
@@ -377,18 +385,61 @@ void statusMode(){
   Serial.println();
 }
 
+void updateTimeKeeping(){
+  // make clock tick tock
+  Comm_Flag = 0;
+  Print_Flag = 0;
+
+  // when 1000 millisecond clock ticks, run real time clock
+  if ((micros() - nextmicros) >= interval){
+    nextmicros = nextmicros + interval; // update for the next comparison
+    seconds = seconds + 1;              // and run real time clock
+    if ((seconds == 0) || (seconds == 15) || (seconds == 30) || (seconds == 45)) {
+      Print_Flag = 1;                     // 1 = ok to print to serial console (teensy Monitor) 0 = off
+    }
+    Comm_Flag = 1;      
+    if ((seconds > 15) && (minutes >= 1)){
+      Main_Loops = 15;  // after 1.5 min of wakeup comms, go to actually getting data from blocks
+    }             
+    if (HistoryTimer > 0){
+      HistoryTimer --;    // run history timer every second
+    }
+    if (seconds == 60){
+      seconds = 0;
+      minutes = minutes + 1;
+      //     if (ModeTimer > 0) ModeTimer = ModeTimer-1;
+      if (minutes == 60){
+        minutes = 0;
+        hours = hours + 1;
+        if (gCharge_Timer > 0) gCharge_Timer --;
+      }
+      if (hours == 24){
+        hours = 0;
+      }
+    }
+  }
+
+  #ifdef SYSTEM_TIME_DEBUG
+    Serial.println();
+    Serial.print("Secs = ");  Serial.println(seconds);          // debug printout to pc (open serial monitor window)
+    Serial.print("Mins = ");  Serial.println(minutes);
+    Serial.print("Hrs = ");  Serial.println(hours);
+    Serial.print("  millisecond counter: ");  Serial.println(millis());
+    Serial.print(" Historical Avg Hottest Tcell: ");     Serial.print(Hist_Highest_Tcell, 0);  Serial.print(" ADC counts ");
+  #endif
+}
+
 #pragma endregion APP
 
 // ****************************************************************************RADIO HEAD RF24
 #pragma region RF24
-bool Comm_Flag =0;
 
 uint8_t gBlockNumber = 1;  // default to first  block, can be 1-40 blocks NOTE there is no number 0 block
 uint8_t gValidPacket = gBlockNumber;  // this var checks what incoming packet is valid
 uint8_t gPacketTimer = 1;   // number of loops before next block in line is polled - start with 20 loops or about 800 msecs. Typ is 200 msec aver block time
 
 //uint8_t Main_Loops = 15;   // at power up use 1 main loop for packet timing to wake up blocks, then change to n loops (start with 12) to insure communication
-uint8_t Main_Loops = 1;   // at power up use 1 main loop for packet timing to wake up blocks, then change to n loops (start with 12) to insure communication
+
 uint8_t gBlockNumCommFault = 0;   // This var holds the last block to not communicate to Pack Supervisor
 
 
@@ -977,58 +1028,13 @@ void loop() {
 
   statusMode();
  
-
-  // make clock tick tock
-  currentmicros = micros(); // read the time.
-  Comm_Flag = 0;
-  Print_Flag = 0;
-
-  // when 1000 millisecond clock ticks, run real time clock
-  if ((currentmicros - nextmicros) >= interval)  // if 1000000 microseconds have gone by...
-  {
-    nextmicros = nextmicros + interval; // update for the next comparison
-    seconds = seconds + 1;              // and run real time clock
-    if ((seconds == 0) || (seconds == 15) || (seconds == 30) || (seconds == 45)) Print_Flag = 1;                     // 1 = ok to print to serial console (teensy Monitor) 0 = off
-    Comm_Flag = 1;      
-    if ((seconds > 15) && (minutes >= 1)) Main_Loops = 15;  // after 1.5 min of wakeup comms, go to actually getting data from blocks               
-    if (HistoryTimer > 0) HistoryTimer --;    // run history timer every second
-
-    if (seconds == 60)
-    {
-      seconds = 0;
-      minutes = minutes + 1;
-      //     if (ModeTimer > 0) ModeTimer = ModeTimer-1;
-      if (minutes == 60)
-      {
-        minutes = 0;
-        hours = hours + 1;
-        if (gCharge_Timer > 0) gCharge_Timer --;
-      }
-      if (hours == 24) hours = 0;
-    }
- 
-
-  }
-
-
-       if (Print_Flag){  // once per minute
-            Serial.println();
-          Serial.print("Secs = ");  Serial.println(seconds);          // debug printout to pc (open serial monitor window)
-          Serial.print("Mins = ");  Serial.println(minutes);
-          Serial.print("Hrs = ");  Serial.println(hours);
-          Serial.print("  millisecond counter: ");  Serial.println(millis());
-          Serial.print(" Historical Avg Hottest Tcell: ");     Serial.print(Hist_Highest_Tcell, 0);  Serial.print(" ADC counts ");
-       }
- 
-
-
+  updateTimeKeeping();
+  
   // Learn mode switch routine...check if learn == on or off
   //tempx ++;
   tempx = tempx + digitalRead(SW1_LEARN_BLKS_PIN);       // read the input pin
-  if ((tempx > 0) && (hours == 0) && (minutes < LEARN_TIMEOUT))   // only allow learn blocks function in first 2 minutes after power applied
-  {
-    if (tempx > 5)
-    {
+  if ((tempx > 0) && (hours == 0) && (minutes < LEARN_TIMEOUT)){   // only allow learn blocks function in first 2 minutes after power applied
+    if (tempx > 5){
       tempx = 10;
       if (minutes < 1){
         LEARNBLOCKS = true;    // turn on first minute, allow to be turned off after that for time or full EE
@@ -1038,27 +1044,22 @@ void loop() {
         if (NUMBER_OF_BLOCK_MANAGERS > 10){
           blockNum[10] = blockNum[11] = blockNum[12] = blockNum[13] = blockNum[14] = blockNum[15] = blockNum[16] = blockNum[17] = blockNum[18] = blockNum[19] = 0;
         }
-      
-      //is 4/18/2019
         for (tempx = 0; tempx < NUMBER_OF_BLOCK_MANAGERS; tempx++){
-        Serial.print(" ZERO Block Addr: "); Serial.print(tempx+1); Serial.print(" with the value: ");  Serial.println(blockNum[tempx]);
-  //        blockNum[tempx] = 0;  // first time through, zero all block array locations, so they can be populated by the learn blocks feature
+          Serial.print(" ZERO Block Addr: "); Serial.print(tempx+1); Serial.print(" with the value: ");  Serial.println(blockNum[tempx]);
+          //blockNum[tempx] = 0;  // first time through, zero all block array locations, so they can be populated by the learn blocks feature
         }
-        LearnBlockSwitch = false ;
-        
+        LearnBlockSwitch = false ; 
       }
-
     }
-    else if (seconds > 55)  tempx = 0;     // if switch is not pressed, 0 out var after 5 seconds
-
+    else if (seconds > 55){
+      tempx = 0;     // if switch is not pressed, 0 out var after 5 seconds
+    }
   }
-  else
-  {
+  else{
     LEARNBLOCKS = false;
   }
 
-  if (VerbosePrintSUPERDATA)
- {
+  if (VerbosePrintSUPERDATA){
     Serial.println();
     Serial.print("    Learn Blocks is ON/OFF: ");  Serial.println(LEARNBLOCKS);
     Serial.println("  These Block numbers populate these memory locations: ");
@@ -1092,51 +1093,49 @@ void loop() {
   //bool Disconnected_Block;   // start with no fault
   
   //if (VerbosePrintSUPERDATA){
-      Serial.println("  These Block numbers contain these timeout values: ");
-      while ( tempbl < NUMBER_OF_BLOCK_MANAGERS )
-         {
-           Serial.print("Block: "); Serial.print(blockNum[tempbl]); Serial.print(" = "); Serial.println(Block_Comm_Timer[tempbl]);
-           //tempbl++;
-           // run comm disconnect timer on all blocks here - count to "TWO_MINUTES" and stop
-           if (Comm_Flag) 
-           {
-              if (Block_Comm_Timer[tempbl] < COMM_TIMEOUT) Block_Comm_Timer[tempbl] ++;     // run timer here, gets zero'd in comm routine
-              if (Block_Comm_Timer[tempbl] >= TWO_MINUTES) {
-                Disconnected_Block = true;                       //  yes at least one block is disconnected
-                Disconnected_BlockNum = blockNum[tempbl];
-               }
-           }
-          tempbl++;
+    Serial.println("  These Block numbers contain these timeout values: ");
+    while(tempbl < NUMBER_OF_BLOCK_MANAGERS){
+      Serial.print("Block: "); Serial.print(blockNum[tempbl]); Serial.print(" = "); Serial.println(Block_Comm_Timer[tempbl]);
+      //tempbl++;
+      // run comm disconnect timer on all blocks here - count to "TWO_MINUTES" and stop
+      if (Comm_Flag){
+        if(Block_Comm_Timer[tempbl] < COMM_TIMEOUT){
+          Block_Comm_Timer[tempbl] ++;     // run timer here, gets zero'd in comm routine
         }
-      Serial.println();
-      if (Disconnected_Block) {
-        Serial.print("Block: "); Serial.print(Disconnected_BlockNum); Serial.print(" = "); Serial.println("DISCONNECTED");
+        if(Block_Comm_Timer[tempbl] >= TWO_MINUTES){
+          Disconnected_Block = true;                       //  yes at least one block is disconnected
+          Disconnected_BlockNum = blockNum[tempbl];
         }
-       Serial.println();
+      }
+      tempbl++;
+    }
+    Serial.println();
+    if(Disconnected_Block){
+      Serial.print("Block: "); Serial.print(Disconnected_BlockNum); Serial.print(" = "); Serial.println("DISCONNECTED");
+    }
+    Serial.println();
   //}
+
   bool Tempdisc = false;
-  tempbl = 0  ;
+  tempbl = 0;
   // Now check all blocks for comms in "TWO_MINUTES", when timers are reset, clear Disconnect switches
-    while ( tempbl < NUMBER_OF_BLOCK_MANAGERS )
-     {
-          if (Block_Comm_Timer[tempbl] > TWO_MINUTES) {
-            Tempdisc = true;                       //  yes at least one block is disconnected
-              //if (VerbosePrintSUPERDATA){ 
-              Serial.print("Block DISCONNECT.... ");Serial.println("Block DISCONNECT");}
-          //}
+  while (tempbl < NUMBER_OF_BLOCK_MANAGERS){
+    if (Block_Comm_Timer[tempbl] > TWO_MINUTES){
+      Tempdisc = true;                       //  yes at least one block is disconnected
+      //if (VerbosePrintSUPERDATA){ 
+       Serial.print("Block DISCONNECT.... ");Serial.println("Block DISCONNECT");}
+      //}
       tempbl++;
     }
     
-    if (Tempdisc == false) {
-       Disconnected_Block = false;                       //  no block is disconnected
-       Disconnected_BlockNum = 0;
+    if(Tempdisc == false){
+      Disconnected_Block = false;                       //  no block is disconnected
+      Disconnected_BlockNum = 0;
       //if (VerbosePrintSUPERDATA){
-          Serial.print("All Blocks connected....");
-          Serial.println("All Blocks connected");
-      }
+        Serial.print("All Blocks connected....");
+        Serial.println("All Blocks connected");
     }
-    if (VerbosePrintSUPERDATA) Serial.println();
-
+  }
 
   // Write new learned block values to EEPROM
   // start writing and reading from the first byte (address 0) of the EEPROM
@@ -1692,7 +1691,7 @@ delay(1);
       }
 
       // filter for bad checksum
-         Temp1 = (((DATA*)buf) -> sCellV_Hiside );
+        Temp1 = (((DATA*)buf) -> sCellV_Hiside );
         Temp2 = (((DATA*)buf) -> sCellV_Loside );
         Temp3 = (((DATA*)buf) -> sThottest );
         Temp4 = (((DATA*)buf) -> sTcoldest );
@@ -1736,44 +1735,37 @@ badcomm:
       // learn blocks to connect to here...if in LEARN BLOCKS mode
        //  Save this block if not already saved
       bool This_Block_Saved = false;
-      if ((LEARNBLOCKS == true))
-      {
-        uint16_t x = NUMBER_OF_BLOCK_MANAGERS;   // number of blocks (+ 1 for zero)
+      if ((LEARNBLOCKS == true)){
         digitalWrite(LED2_RED_PIN, HIGH);  //on
         digitalWrite(LED1_RED_PIN, HIGH);  //on
-     
-        while ( x > 0 )
-        {
-          if (from == blockNum[x - 1])    // first check = has BLOCK already been saved?
-          {
+
+        // first check = has BLOCK already been saved?
+        for (int i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+          if (from == blockNum[i - 1]){
            if (VerbosePrintSUPERDATA){
-            Serial.print("THIS BLOCK IS ALREADY SAVED IN LOCATION: "); Serial.println(x - 1);
-            Serial.print("from: "); Serial.print(from); Serial.print("blockNum: "); Serial.println(x - 1);
+            Serial.print("THIS BLOCK IS ALREADY SAVED IN LOCATION: "); Serial.println(i - 1);
+            Serial.print("from: "); Serial.print(from); Serial.print("blockNum: "); Serial.println(i - 1);
            }
            This_Block_Saved = true;
            // zero comm timer for this block
-           Block_Comm_Timer[x] = 0;
+           Block_Comm_Timer[i] = 0;
+          }
         }
-          x--;
-        }
-        x = NUMBER_OF_BLOCK_MANAGERS;
-        while ( x > 0 )
-        {
-          if (This_Block_Saved != true)      // if not saved, save BLOCK to zero'd location
-          {
+        // if not saved, save BLOCK to zero'd location
+        for (int i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+          if (This_Block_Saved != true){
             // not saved so store this block in an unused or zerod location
-            if (blockNum[x - 1] == 0)
-            {
-              blockNum[x - 1] = from;
+            if (blockNum[i - 1] == 0){
+              blockNum[i - 1] = from;
               Serial.print("success saving Block#: "); Serial.print(from);
-              Serial.print(" into RAM location: "); Serial.println(x - 1);
-              goto exitsaveblock;
+              Serial.print(" into RAM location: "); Serial.println(i - 1);
+              break;
             }
           }
-          x--;
         }
       }
-      else // LEARN mode is off, so check incoming block number with saved blocks
+      // LEARN mode is off, so check incoming block number with saved blocks
+      else
       {
         int x = NUMBER_OF_BLOCK_MANAGERS;
         while ( x > 0 )
@@ -1897,7 +1889,6 @@ exitsaveblock:
 
   // Block awareness: check to see which blocks are talking, over a 100 sec window
 
-  watchdogReset();  // wd resets in 1 sec
 
   //debug
     // delay(30);  // ALLOW about 50 msecs between block transmits/receptions (main takes ~20ms)
