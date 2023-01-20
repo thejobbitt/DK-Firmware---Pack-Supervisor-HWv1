@@ -1,0 +1,66 @@
+
+-> User Configuration
+    cell Type
+    number of block managers
+    number of series cells
+    number of parallel cells
+    server address (to be replaced with teensy serial number)
+    version of dk hardware
+    charger type
+    display type
+
+-> Setup
+    // initialization
+    watchdog
+    serial comms
+    board and pins
+    radio
+    EEPROM
+    limp mode
+    charger
+    display
+    
+    // comms
+    check button for learn blocks switch
+    - if true
+        clear block list
+        listen for blocks and add to list
+        check for complete block list
+        write blocks list to EEprom
+    read block list from eeprom
+    
+-> Main loop
+    reset watchdog
+    manage application (changes mode)
+    - switch mode
+        - Startup
+            starting mode 
+        - Pause
+            ???
+        - charge
+            manage relays
+            manage charger
+            manage display
+            read charge current
+        - drive
+            manage relays
+            manage display
+            read discharge current
+        - limp
+            output signal on limp pin
+            reduce output current
+            manage display
+        - Sleep
+            turn off comms
+            shut off leds
+            put microcontroller into low power mode
+
+    output serial data
+
+-> manage application
+    check cell voltages
+    check cell temperatures
+    check for new comms data
+    process comms data
+    check to make sure all blocks are connected
+    trigger errors
