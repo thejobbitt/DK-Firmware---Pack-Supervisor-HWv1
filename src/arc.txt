@@ -26,8 +26,8 @@
         clear block list
         listen for blocks and add to list
         check for complete block list
-        write blocks list to EEprom
-    read block list from eeprom
+        write blocks list to EEPROM
+    read block list from EEPROM
     
 -> Main loop
     reset watchdog
@@ -52,7 +52,7 @@
             manage display
         - Sleep
             turn off comms
-            shut off leds
+            shut off LEDs
             put microcontroller into low power mode
 
     output serial data
