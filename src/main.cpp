@@ -308,8 +308,8 @@ float gSOCv = Vnominal;   // init with a nominal value
   //const int MIN_PWM = 1;
 
   // serial ouput
-elapsedMillis serialDelayTimer  = 0;    // limits the serial out put to make it more readable
-uint16_t      serialDelay       = 1000; // in milliseconds
+elapsedMillis heartBeatTimer  = 0;    // limits the serial out put to make it more readable
+uint16_t      heartBeat       = 1000; // in milliseconds
 
   // software real time clock vars
 unsigned long nextmicros = 0;
@@ -322,6 +322,10 @@ int ModeTimer = 0;                  // use for off timer = 10 mins get set later
 byte T_MODECHECK = 10;              // update historical vars every minute for a 10 min running average
 const int T_HISTORYCHECK = 1;       // update historical vars every 1 secs
 int HistoryTimer = T_HISTORYCHECK;
+  // prototypes
+void initLEDTest(void);
+void statusMode(void);
+void updateTimeKeeping(void);
 
 /**
  * @brief LED initialization
@@ -446,20 +450,20 @@ uint8_t gBlockNumCommFault = 0;   // This var holds the last block to not commun
 #define DK_MESSAGE_LENGTH 16  //DK uses 16 byte packet
   // objects
 RH_NRF24 rh_rf24(SPI0_CE_PIN, SPI0_CS_PIN); // for Teensy 3.x SS and CE lines
-// Class to manage message delivery and receipt, using the driver declared above
+  // Class to manage message delivery and receipt, using the driver declared above
 RHReliableDatagram rh_rh24_datagram(rh_rf24, SERVER_ADDRESS);
-// Dont put this on the stack:
-//uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];    // buffer = 24 bytes long is max RH packet
+  // Dont put this on the stack:
+  //uint8_t buf[RH_NRF24_MAX_MESSAGE_LEN];    // buffer = 24 bytes long is max RH packet
 uint8_t buf[DK_MESSAGE_LENGTH];    // buffer = 16 bytes long is max DK packet
 
 uint8_t from;
 
-// comms vars
+  // comms vars
 uint16_t CommsFaults = 0;
 bool Disconnected_Block = 0;
 uint16_t Disconnected_BlockNum = 0;   // BLock 0 not used - START at Block 1
 
-// start with nonimal settings
+  // start with nonimal settings
 float Highest_Vcell = cell.volt_Nominal;
 float Lowest_Vcell  = cell.volt_Nominal;
 uint16_t Highest_Tcell = NTC_AMBIENT;
@@ -485,6 +489,10 @@ struct DATA {
   //bool sCharge;
 };
 DATA data;
+
+  // prototypes
+void initRF24(void);
+void GetBlockData(void);
 
 /**
  * @brief Radio Head RF24 initialization
@@ -676,6 +684,9 @@ void manageLimpMode(){
 // ****************************************************************************ANALOG CHARGER
 #pragma region ANALOG CHARGER
 #ifdef CHARGER_ANALOG_DAC2
+    //prototypes
+  void initChargerAnalog(void);
+   void manageChargerAnalog(void);
 
   /**
    * @brief Analog Charger Init
@@ -757,13 +768,18 @@ void manageLimpMode(){
   static CAN_message_t rxMsg;
   const uint32_t BMS_TO_CHARGER = 0x1806E5F4;
   const uint32_t CHARGER_BROADCAST = 0x18FF50E5;
-  
+    // prototypes
+  void initChargerBlueMySkyCAN(void);
+  void chargerBlueMySkyCANSend(uint32_t, uint16_t, uint16_t, bool);
+  bool chargerBlueMySkyCANReceive(struct CAN_message_t);
+  void manageChargerblueMySky(void);
+
   /**************************************************************************/
   /*!
   	@brief  initialization of the Blue My Sky CAN BUS Charger
   */
   /**************************************************************************/
-  void initChargerBlueMySkyCAN(void){
+  void initChargerBlueMySkyCAN(){
     Can0.begin(250000);                         // join CAN at 250Kbps
     CAN_filter_t Filter;                        // CAN filter struct
     Filter.id = 0;                              // dont filter any Rx messages
@@ -783,7 +799,7 @@ void manageLimpMode(){
     @param on_off turn charger on or off
   */
   /**************************************************************************/
-  void chargerBlueMySkyCANSend(uint32_t id, uint16_t  cV, uint16_t cC, bool on_off){
+  void chargerBlueMySkyCANSend(uint32_t id, uint16_t cV, uint16_t cC, bool on_off){
     CAN_message_t hold;
     hold.id = id;                                                    // set id
     hold.ext = 1;                                                    // set message as extended
@@ -1022,14 +1038,15 @@ void setup() {
   
 }
 
-// ****************************************************************************APPLICATION MAIN
-void loop() {
-  watchdogReset();  // reset the watchdog timer (times out in 1 sec so make sure loop is under about 500-600msec)
 
-  statusMode();
- 
-  updateTimeKeeping();
+void clearBlockManagerNumbers(){
+  for (int i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+    blockNum[i] = 0;
+  }
   
+}
+
+void oldMainLoop(){
   // Learn mode switch routine...check if learn == on or off
   //tempx ++;
   tempx = tempx + digitalRead(SW1_LEARN_BLKS_PIN);       // read the input pin
@@ -1893,4 +1910,21 @@ exitsaveblock:
   //debug
     // delay(30);  // ALLOW about 50 msecs between block transmits/receptions (main takes ~20ms)
     delay(20);  // ALLOW about 50 msecs between block transmits/receptions (main takes ~20ms)
+}
+
+// ****************************************************************************APPLICATION MAIN
+void loop() {
+  watchdogReset();  // reset the watchdog timer (times out in 1 sec so make sure loop is under about 500-600msec)
+
+  statusMode();
+ 
+  updateTimeKeeping();
+  
+  oldMainLoop();
+
+  // time delayed functions go here
+  if(heartBeatTimer < heartBeat){
+    heartBeatTimer = 0;
+    // serial output
+  }
 }
