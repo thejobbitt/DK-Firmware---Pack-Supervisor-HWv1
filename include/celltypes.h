@@ -51,7 +51,7 @@ extern struct celltypes cell;
         // voltage specifications
         const float volt_Nominal                    = 3.635f;  // nominal voltage
         const float volt_Balance                    = 4.11f;   // balancing voltage
-        const float volt_HVD                        = 4.21f;   // high voltage disconnect
+        const float volt_HVD                        = 4.18f;   // high voltage disconnect
         const float volt_LVD                        = 2.91f;   // low voltage disconnect
         // charge voltages
         const float volt_high_chargeCut             = 4.20f;   // charger upper cutoff voltage
