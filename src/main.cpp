@@ -25,7 +25,34 @@
   // 1 and 9 => reserved for lab use
   // 60 used for Kents Beetle
   // DONT use 0 or 255! ---does not work for manchester encoding!
-  #define SERVER_ADDRESS 60  
+  #define SERVER_ADDRESS 60
+
+  //#define BLOCKS_EEPROM
+  #define BLOCKS_MANUAL
+
+  #ifdef BLOCKS_MANUAL
+    // manual define block addresses
+    #define BLOCK_1   1
+    #define BLOCK_2   2
+    #define BLOCK_3   3
+    #define BLOCK_4   4
+    #define BLOCK_5   5
+    #define BLOCK_6   6
+    #define BLOCK_7   7
+    #define BLOCK_8   8
+    #define BLOCK_9   9
+    #define BLOCK_10  10
+    #define BLOCK_11  11
+    #define BLOCK_12  12
+    #define BLOCK_13  13
+    #define BLOCK_14  14
+    #define BLOCK_15  15
+    #define BLOCK_16  16
+    #define BLOCK_17  17
+    #define BLOCK_18  18
+    #define BLOCK_19  19
+    #define BLOCK_20  20
+  #endif
 
 /**
  * DK Supervisor
@@ -38,7 +65,7 @@
     #define RF24
   #endif
   #ifdef DK_SUPER_HW_V2
-    #define SUBG
+    
   #endif
 
 /**
@@ -48,7 +75,7 @@
   // No Control charger
     #define CHARGER_RELAY_ON_OFF
   // Analog style 0 to 5v
-    #define CHARGER_ANALOG_DAC2
+    //#define CHARGER_ANALOG_DAC2
     #ifdef CHARGER_ANALOG_DAC2
       #define ANALOG_FULL_VOLT  5 // fully on voltage NOT HOOKED UP
       #define ANALOG_OFF_VOLT   2 // fully off voltage NOT HOOKED UP
@@ -76,7 +103,9 @@
 #ifdef RF24
   #include <RH_NRF24.h>             // https://github.com/PaulStoffregen/RadioHead
 #endif
-#include <FlexCAN.h>                // https://github.com/teachop/FlexCAN_Library
+#ifdef CHARGER_MYBLUESKY_S2500
+  #include <FlexCAN.h>                // https://github.com/teachop/FlexCAN_Library
+#endif
 #include <SPI.h>                    // https://github.com/PaulStoffregen/SPI
 #include <EEPROM.h>                 // https://github.com/PaulStoffregen/EEPROM
 #include <elapsedMillis.h>          // https://github.com/pfeerick/elapsedMillis
@@ -86,8 +115,8 @@
 #include <celltypes.h>              // Cell Specifcations
 
 // ****************************************************************************DEBUG
-// Wait for serial connection (will reset untill serial port is connected)
-  #define WAIT_FOR_SERIAL
+// Wait for serial connection (will reset until serial port is connected)
+  //#define WAIT_FOR_SERIAL
 
 // debug serial out is not delayed
   //#define CHARGER_DEBUG
@@ -145,7 +174,7 @@ void watchdogReset() {
 #pragma region DKBOARDSETUP
 #ifdef DK_SUPER_HW_V1
     // switch pins
-  #define SW1_LEARN_BLKS_PIN  2
+  #define SW1_LEARN_BLKS_PIN  2   // S1 PCB Switch, closest to the Teensy
     // led pins
   #define LED1_RED_PIN        15
   #define LED1_GREEN_PIN      16
@@ -159,36 +188,37 @@ void watchdogReset() {
   #define INPUT_CHARGE_PIN    22
   #define INPUT_KEYSWITCH_PIN 23
     // input pins
-  #define PACK_VOLTAGE_PIN              A0  // Schematic(VSCALED-PACK), 1.4v at 100VDC, 2.4V at 170VDC
-  #define SUPERVISOR_TEMP_PIN           A3  // Onboard supervisor NTC (previously NTCambient)
-  #define CURRENT_SENSOR_CHARGE_PIN     A11 // Schematic(ICHG), PCB(CON8, CH)
-  #define CURRENT_SENSOR_DISCHARGE_PIN  A5  // Schematic(IDISCHG), PCB(CON8, DIS)  
-  #define VBALANCE_PIN                  A10 // Schematic(TP VBAL), Currently unused
+  #define PACK_VOLTAGE_PIN              A0  // P14 Schematic(VSCALED-PACK), 1.4v at 100VDC, 2.4V at 170VDC
+  #define SUPERVISOR_TEMP_PIN           A3  // P17 Onboard supervisor NTC (previously NTCambient)
+  #define CURRENT_SENSOR_CHARGE_PIN     A11 // P25 Schematic(ICHG), PCB(CON8, CH)
+  #define CURRENT_SENSOR_DISCHARGE_PIN  A5  // P19 Schematic(IDISCHG), PCB(CON8, DIS)  
+  #define VBALANCE_PIN                  A10 // P24 Schematic(TP VBAL), POT Currently unused
     // output pins
   #define OUTPUT_LIMP_PIN     18
   #define DAC_FUEL_GAUGE_PIN  A14
     // PWM Pins for op amp digital DACs (note: 10 bits PWM same setup as Analog DAC output)
   #define PWM1_DAC1_PIN       20
-  #define PWM2_DAC2_PIN       21
+  #define PWM2_DAC2_PIN       21            // Charger control PWM
     // SPI pins
   #define SPI0_SCLK_PIN       13
   #define SPI0_MISO_PIN       12
   #define SPI0_MOSI_PIN       11
   #define SPI0_CS_PIN         10
   #define SPI0_CE_PIN         9
+    // 3.2 TFT SPI 240x320 v1.0
+  #define SPI0_LCD_CS_PIN     28
+  #define SPI0_LCD_DC_PIN     29
     // unused pins
   #define UNUSED_A12_PIN      A12
   #define UNUSED_A13_PIN      A13
-  #define UNUSED_A24_PIN      24
-  #define UNUSED_A25_PIN      25
-  #define UNUSED_A26_PIN      26
-  #define UNUSED_A27_PIN      27
-  #define UNUSED_A28_PIN      28
-  #define UNUSED_A29_PIN      29
-  #define UNUSED_A30_PIN      30
-  #define UNUSED_A31_PIN      31
-  #define UNUSED_A32_PIN      32
-  #define UNUSED_A33_PIN      33
+  #define UNUSED_P24_PIN      24
+  #define UNUSED_P25_PIN      25
+  #define UNUSED_P26_PIN      26
+  #define UNUSED_P27_PIN      27
+  #define UNUSED_P30_PIN      30
+  #define UNUSED_P31_PIN      31
+  #define UNUSED_P32_PIN      32
+  #define UNUSED_P33_PIN      33
 #endif
 
 #define VREF (3.266)                    // ADC reference voltage (= power supply)
@@ -233,16 +263,14 @@ void initBoard(){
   // Unused I/O make digital output for low impedance and EMI-resistance
   pinMode(UNUSED_A12_PIN, INPUT_PULLUP);
   pinMode(UNUSED_A13_PIN, INPUT_PULLUP);   
-  pinMode(UNUSED_A24_PIN, OUTPUT);
-  pinMode(UNUSED_A25_PIN, OUTPUT);   
-  pinMode(UNUSED_A26_PIN, OUTPUT);   
-  pinMode(UNUSED_A27_PIN, OUTPUT);   
-  pinMode(UNUSED_A28_PIN, OUTPUT);   
-  pinMode(UNUSED_A29_PIN, OUTPUT);   
-  pinMode(UNUSED_A30_PIN, OUTPUT);   
-  pinMode(UNUSED_A31_PIN, OUTPUT);   
-  pinMode(UNUSED_A32_PIN, OUTPUT);   
-  pinMode(UNUSED_A33_PIN, OUTPUT);
+  pinMode(UNUSED_P24_PIN, OUTPUT);
+  pinMode(UNUSED_P25_PIN, OUTPUT);   
+  pinMode(UNUSED_P26_PIN, OUTPUT);   
+  pinMode(UNUSED_P27_PIN, OUTPUT);   
+  pinMode(UNUSED_P30_PIN, OUTPUT);   
+  pinMode(UNUSED_P31_PIN, OUTPUT);   
+  pinMode(UNUSED_P32_PIN, OUTPUT);   
+  pinMode(UNUSED_P33_PIN, OUTPUT);
 
   // configure the ADC - Teensy PWM runs at 23kHz, DAC value is 0 to 1023
   analogWriteFrequency(PWM1_DAC1_PIN, PWM_FREQ); 
@@ -250,6 +278,8 @@ void initBoard(){
 
   analogReference(EXTERNAL);      // set analog reference to ext ref
   analogReadRes(ADC_RESOLUTION);  // Teensy 3.0: set ADC resolution to this many bits
+
+  Serial.println("Micro Init Passed");
 }
 
 #pragma endregion DKBOARDSETUP
@@ -258,10 +288,11 @@ void initBoard(){
 #pragma region APP
   // app states
 #define DK_STARTUP            0
-#define DK_SLEEP              1
-#define DK_PAUSE              2
-#define DK_CHARGE             3
-#define DK_DRIVE              4
+#define DK_LEARN              1
+#define DK_SLEEP              2
+#define DK_PAUSE              3
+#define DK_CHARGE             4
+#define DK_DRIVE              5
 uint8_t dkMode = DK_STARTUP; // default to sleep
 
   // relay states
@@ -322,10 +353,18 @@ int ModeTimer = 0;                  // use for off timer = 10 mins get set later
 byte T_MODECHECK = 10;              // update historical vars every minute for a 10 min running average
 const int T_HISTORYCHECK = 1;       // update historical vars every 1 secs
 int HistoryTimer = T_HISTORYCHECK;
+
+  // seem to be temp and current related
+float datSum = 0;       // reset our accumulated sum of input values to zero
+long n = 0;             // count of how many readings so far
+double x1 = 0;
+float datAvg;
+
   // prototypes
 void initLEDTest(void);
 void statusMode(void);
 void updateTimeKeeping(void);
+void updateSupervisorPCBTemp(void);
 
 /**
  * @brief LED initialization
@@ -357,6 +396,8 @@ void initLEDTest(){
   digitalWrite(LED1_RED_PIN, LOW);
   digitalWrite(LED2_GREEN_PIN, LOW);
   digitalWrite(LED2_RED_PIN, LOW);
+
+  Serial.println("LED Init Passes");
 }
 
 /**
@@ -369,6 +410,9 @@ void statusMode(){
   switch (dkMode){
   case DK_STARTUP:
     Serial.println("Startup");
+    break;
+  case DK_LEARN:
+    Serial.println("Learn");
     break;
   case DK_SLEEP:
     Serial.println("Sleep");
@@ -389,8 +433,11 @@ void statusMode(){
   Serial.println();
 }
 
+/**
+ * @brief Tims timekeeping
+ * 
+ */
 void updateTimeKeeping(){
-  // make clock tick tock
   Comm_Flag = 0;
   Print_Flag = 0;
 
@@ -431,6 +478,39 @@ void updateTimeKeeping(){
     Serial.print("  millisecond counter: ");  Serial.println(millis());
     Serial.print(" Historical Avg Hottest Tcell: ");     Serial.print(Hist_Highest_Tcell, 0);  Serial.print(" ADC counts ");
   #endif
+}
+
+/**
+ * @brief Update the onboard NTC temp sensor
+ * 
+ */
+void updateSupervisorPCBTemp(){
+  // measure ambient NTC - start with all LEDs red. If NTC gets shorted, make them green
+  //          digitalWrite(LED1_RED_PIN,HIGH);
+  //          digitalWrite(LED2_RED_PIN,HIGH);
+  
+  datSum = 0;
+
+  for (int i = 0; i < SAMPLES; i++) {
+    x1 = analogRead(SUPERVISOR_TEMP_PIN);
+    if ((i < 10 ) || (i > 150)) goto throwaway_a;  // throw away the first 10 and last 50 samples
+    datSum += x1;
+    n++;
+    throwaway_a:  ;
+  } //end ntc loop
+
+
+  datAvg = (datSum) / n;    // find the mean
+  int Tambient = datAvg;      // save ambient
+
+  if (Print_Flag){
+      Serial.print(SUPERVISOR_TEMP_PIN);  Serial.print(" :");
+      Serial.print("  NTC ambient avg value: ");     Serial.print(Tambient);  Serial.println ();
+      if (datAvg < 100)
+      {
+        Serial.print("NTC possibly shorted ");    Serial.println ();
+      }
+  }
 }
 
 #pragma endregion APP
@@ -552,25 +632,17 @@ void GetBlockData(){
 #pragma endregion RF24
 
 // ****************************************************************************EEPROM
-#pragma region EEPROM
+#pragma region BLOCKS
+uint8_t blockNum[NUMBER_OF_BLOCK_MANAGERS];
+uint8_t blockCommTimer[NUMBER_OF_BLOCK_MANAGERS];
+
 const byte LEARN_TIMEOUT = 2;       // learn mode timeout after 2 minutes after power up
-//uint8_t blockNum[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // the array of 10 blocks for FIDO, this will have to be user configurable
-uint8_t blockNum[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0}; // Change for Kents Bug
 bool LearnBlockSwitch = 1;         // switch used to determine if block values should be zeroed
 
 // block array for block 'awareness'
 const uint8_t COMM_TIMEOUT = 255;     // max 4+ minute comm timeout - then go to sleep
-//uint8_t Block_Comm_Timer[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-uint8_t Block_Comm_Timer[20] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0,0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };    // Kents bug change
 
-//const float VPACK_HI_CHG_LIMIT = 60.0;    // do not allow charger to raise pack > 4.20V cell x 20 cells = 84VDC
-// const float Vpack_HV_Run_Limit = 64.0; // Confirm with Jeb
-//   const float VPACK_LO_RUN_LIMIT = 52.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
-// ship with the following values ...but check with JEb first...
-//const float VPACK_HI_CHG_LIMIT = 85.0;    // do not allow charger to raise pack > 4.25V cell x 20 cells = 85VDC
 const float VPACK_HI_CHG_LIMIT = NUMBER_OF_S_CELLS * cell.volt_HVD;    // do not allow charger to raise pack > 4.25V cell x # of cells in series
-//const float Vpack_HV_Run_Limit = 90.0; // Confirm with Jeb
-//const float VPACK_LO_RUN_LIMIT = 58.0;  // do not allow to run pack below 2.80V per cell x 20 cells = 58V
 // current control
 uint16_t gTempPot;       // current potentiomenter
 float gAmps;              // amps plus and minus through LEM sensor
@@ -583,39 +655,236 @@ float LEM_Offset = EEPROM_CHG_SENSOR_OFFSET; // starting value
 
 bool LEARNBLOCKS = false;   // Learn blocks is turned on by "CONNECT" switch
 byte tempx = 0;
+
   // prototypes
-void initEEPROM(void);
-void statusEEPROM(void);
+void initBlocks(void);
+void learnBlockManagerNumbers(void);
+void clearBlockManagerNumbers(void);
+void statusBlocks(void);
 
 /**
  * @brief EEPROM initialization
  *        retreive EEPROM contents into RAM for Block comms - in other words...
  *        "retreived blocks that pack supervisor learned was connected"
  */
-void initEEPROM(){
-  byte storedValue;
-  // retreive EEPROM contents
-  for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
-    storedValue = EEPROM.read(i);
-    blockNum[i] = storedValue;
-  }
+void initBlocks(){
+  #ifdef BLOCKS_EEPROM
+    // retreive EEPROM contents
+    for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+      blockNum[i] = EEPROM.read(i);
+    }
+  #endif
 
-  statusEEPROM();
+  #ifdef BLOCKS_MANUAL
+    blockNum[0]  = {BLOCK_1 };
+    blockNum[1]  = {BLOCK_2 };  
+    blockNum[2]  = {BLOCK_3 };  
+    blockNum[3]  = {BLOCK_4 };  
+    blockNum[4]  = {BLOCK_5 };  
+    blockNum[5]  = {BLOCK_6 };  
+    blockNum[6]  = {BLOCK_7 };  
+    blockNum[7]  = {BLOCK_8 };  
+    blockNum[8]  = {BLOCK_9 };  
+    blockNum[9]  = {BLOCK_10};
+    blockNum[10] = {BLOCK_11};
+    blockNum[11] = {BLOCK_12};
+    blockNum[12] = {BLOCK_13};
+    blockNum[13] = {BLOCK_14};
+    blockNum[14] = {BLOCK_15};
+    blockNum[15] = {BLOCK_16};
+    blockNum[16] = {BLOCK_17};
+    blockNum[17] = {BLOCK_18};
+    blockNum[18] = {BLOCK_19};
+    blockNum[19] = {BLOCK_20};
+  #endif
+  statusBlocks();
 }
 
 /**
- * @brief Display the stored EEPROM values and current block variable values
+ * @brief Reset and relearn block client addresses
  * 
  */
-void statusEEPROM(){
-  Serial.println();
-  for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
-    Serial.print("EEPROM: "); Serial.print(EEPROM.read(i)); Serial.print(" DKBlock: "); Serial.println(blockNum[i]);
+void learnBlockManagerNumbers(){
+    // Learn mode switch routine...check if learn == on or off
+  //tempx ++;
+  tempx = tempx + digitalRead(SW1_LEARN_BLKS_PIN);       // read the input pin
+  if ((tempx > 0) && (hours == 0) && (minutes < LEARN_TIMEOUT)){   // only allow learn blocks function in first 2 minutes after power applied
+    if (tempx > 5){
+      tempx = 10;
+      if (minutes < 1){
+        LEARNBLOCKS = true;    // turn on first minute, allow to be turned off after that for time or full EE
+      }
+      if (LearnBlockSwitch == true){
+        blockNum[0] = blockNum[1] = blockNum[2] = blockNum[3] = blockNum[4] = blockNum[5] = blockNum[6] = blockNum[7] = blockNum[8] = blockNum[9] = 0;
+        if (NUMBER_OF_BLOCK_MANAGERS > 10){
+          blockNum[10] = blockNum[11] = blockNum[12] = blockNum[13] = blockNum[14] = blockNum[15] = blockNum[16] = blockNum[17] = blockNum[18] = blockNum[19] = 0;
+        }
+        for (tempx = 0; tempx < NUMBER_OF_BLOCK_MANAGERS; tempx++){
+          Serial.print(" ZERO Block Addr: "); Serial.print(tempx+1); Serial.print(" with the value: ");  Serial.println(blockNum[tempx]);
+          //blockNum[tempx] = 0;  // first time through, zero all block array locations, so they can be populated by the learn blocks feature
+        }
+        LearnBlockSwitch = false ; 
+      }
+    }
+    else if (seconds > 55){
+      tempx = 0;     // if switch is not pressed, 0 out var after 5 seconds
+    }
   }
+  else{
+    LEARNBLOCKS = false;
+  }
+    if (VerbosePrintSUPERDATA){
+    Serial.println();
+    Serial.print("    Learn Blocks is ON/OFF: ");  Serial.println(LEARNBLOCKS);
+    Serial.println("  These Block numbers populate these memory locations: ");
+    Serial.print("EEprom location 0 =  "); Serial.print("Block Addr "); Serial.println(blockNum[0]);
+    Serial.print("EEprom location 1 =  "); Serial.print("Block Addr "); Serial.println(blockNum[1]);
+    Serial.print("EEprom location 2 =  "); Serial.print("Block Addr "); Serial.println(blockNum[2]);
+    Serial.print("EEprom location 3 =  "); Serial.print("Block Addr "); Serial.println(blockNum[3]);
+    Serial.print("EEprom location 4 =  "); Serial.print("Block Addr "); Serial.println(blockNum[4]);
+    Serial.print("EEprom location 5 =  "); Serial.print("Block Addr "); Serial.println(blockNum[5]);
+    Serial.print("EEprom location 6 =  "); Serial.print("Block Addr "); Serial.println(blockNum[6]);
+    Serial.print("EEprom location 7 =  "); Serial.print("Block Addr "); Serial.println(blockNum[7]);
+    Serial.print("EEprom location 8 =  "); Serial.print("Block Addr "); Serial.println(blockNum[8]);
+    Serial.print("EEprom location 9 =  "); Serial.print("Block Addr ");Serial.println(blockNum[9]);
+    Serial.print("EEprom location 10 =  "); Serial.print("Block Addr ");Serial.println(blockNum[10]);
+    Serial.print("EEprom location 11 =  "); Serial.print("Block Addr ");Serial.println(blockNum[11]);
+    Serial.print("EEprom location 12 =  "); Serial.print("Block Addr ");Serial.println(blockNum[12]);
+    Serial.print("EEprom location 13 =  "); Serial.print("Block Addr ");Serial.println(blockNum[13]);
+    Serial.print("EEprom location 14 =  "); Serial.print("Block Addr ");Serial.println(blockNum[14]);
+    Serial.print("EEprom location 15 =  "); Serial.print("Block Addr ");Serial.println(blockNum[15]);
+    Serial.print("EEprom location 16 =  "); Serial.print("Block Addr ");Serial.println(blockNum[16]);
+    Serial.print("EEprom location 17 =  "); Serial.print("Block Addr ");Serial.println(blockNum[17]);
+    Serial.print("EEprom location 18 =  "); Serial.print("Block Addr ");Serial.println(blockNum[18]);
+    Serial.print("EEprom location 19 =  "); Serial.print("Block Addr ");Serial.println(blockNum[19]);
+
+    Serial.println();
+  //}
+
+  byte tempbl = 0  ;
+  //byte TWO_MINUTES = 30;      // 240 seconds (4 min)
+  byte TWO_MINUTES = 120;      // 120 seconds (2 min)
+  //bool Disconnected_Block;   // start with no fault
+  
+  //if (VerbosePrintSUPERDATA){
+    Serial.println("  These Block numbers contain these timeout values: ");
+    while(tempbl < NUMBER_OF_BLOCK_MANAGERS){
+      Serial.print("Block: "); Serial.print(blockNum[tempbl]); Serial.print(" = "); Serial.println(blockCommTimer[tempbl]);
+      //tempbl++;
+      // run comm disconnect timer on all blocks here - count to "TWO_MINUTES" and stop
+      if (Comm_Flag){
+        if(blockCommTimer[tempbl] < COMM_TIMEOUT){
+          blockCommTimer[tempbl] ++;     // run timer here, gets zero'd in comm routine
+        }
+        if(blockCommTimer[tempbl] >= TWO_MINUTES){
+          Disconnected_Block = true;                       //  yes at least one block is disconnected
+          Disconnected_BlockNum = blockNum[tempbl];
+        }
+      }
+      tempbl++;
+    }
+    Serial.println();
+    if(Disconnected_Block){
+      Serial.print("Block: "); Serial.print(Disconnected_BlockNum); Serial.print(" = "); Serial.println("DISCONNECTED");
+    }
+    Serial.println();
+  //}
+
+  bool Tempdisc = false;
+  tempbl = 0;
+  // Now check all blocks for comms in "TWO_MINUTES", when timers are reset, clear Disconnect switches
+  while (tempbl < NUMBER_OF_BLOCK_MANAGERS){
+    if (blockCommTimer[tempbl] > TWO_MINUTES){
+      Tempdisc = true;                       //  yes at least one block is disconnected
+      //if (VerbosePrintSUPERDATA){ 
+       Serial.print("Block DISCONNECT.... ");Serial.println("Block DISCONNECT");}
+      //}
+      tempbl++;
+    }
+    
+    if(Tempdisc == false){
+      Disconnected_Block = false;                       //  no block is disconnected
+      Disconnected_BlockNum = 0;
+      //if (VerbosePrintSUPERDATA){
+        Serial.print("All Blocks connected....");
+        Serial.println("All Blocks connected");
+    }
+  }
+
+  // Write new learned block values to EEPROM
+  // start writing and reading from the first byte (address 0) of the EEPROM
+  int EE_address = 0;
+  byte EE_value;
+
+  //if ((LEARNBLOCKS == ON) && (blockNum[0]) )   // Make sure we are in learn mode and all blocks are written
+  if ((LEARNBLOCKS == true) && (seconds == 0))   // Write EE once/sec when we are in learn mode
+  {
+    for (EE_address = 0; EE_address < 10; EE_address++)
+    {
+      EEPROM.write(EE_address, blockNum[EE_address]);
+      EE_value = EEPROM.read(EE_address);
+      Serial.print("Once/min save Block#: "); Serial.print(EE_value); Serial.print("to this EEprom address:  "); Serial.println(EE_address);
+      Serial.print("Once/min save Block#: "); Serial.print(EE_value); Serial.print("to this EEprom address:  "); Serial.println(EE_address);
+
+    }
+    if (blockNum[0]) LEARNBLOCKS = false;   // if last block is saved to EE, turn off Learn blocks
+  }
+
+  if (LEARNBLOCKS == true)     // turn on RED leds
+  {
+    digitalWrite(LED2_RED_PIN, HIGH);  //on
+    digitalWrite(LED1_RED_PIN, HIGH);  //on
+  }
+  else    // turn off red leds unle3ss
+  {
+    if (blockNum[0] == 0)
+    {
+      digitalWrite(LED2_RED_PIN, HIGH);  // turn on LED2=RED if all Blocks not programmed
+      digitalWrite(LED1_RED_PIN, LOW);
+    }
+    else
+    {
+      digitalWrite(LED2_RED_PIN, LOW);  //off
+      digitalWrite(LED1_RED_PIN, LOW);  //off
+    }
+  }
+  
+}
+
+/**
+ * @brief Clears the stored global block client addresses
+ * 
+ */
+void clearBlockManagerNumbers(){
+  for (int i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+    blockNum[i] = 0;
+  }
+  
+}
+
+/**
+ * @brief Display the stored block client addresses
+ * 
+ */
+void statusBlocks(){
+  Serial.println();
+  
+  #ifdef BLOCKS_EEPROM
+    for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+      Serial.print("EEPROM: "); Serial.print(EEPROM.read(i)); Serial.print(" Block #: "); Serial.println(blockNum[i]);
+    }
+  #endif
+
+  #ifdef BLOCKS_MANUAL
+    for(size_t i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
+      Serial.print("Programmed Block #: "); Serial.println(blockNum[i]);
+    }
+  #endif
+
   Serial.println();
 }
 
-#pragma endregion EEPROM
+#pragma endregion BLOCKS
 
 // ****************************************************************************LIMP MODE
 #pragma region LIMP MODE
@@ -1013,9 +1282,11 @@ void setup() {
   #ifdef WAIT_FOR_SERIAL
     while (!Serial){}
   #endif
+
     // grab the teensy serial number
   teensySN(teensySerial);
-    // post to serial general info
+
+    // post battery pack info
   Serial.println();
   Serial.print("DK Pack Supervisor - Firmware: "); Serial.println(VERSION);
   Serial.print("Teensy SN: "); 
@@ -1025,199 +1296,21 @@ void setup() {
   Serial.println();
   Serial.print("Server Address: "); Serial.println(SERVER_ADDRESS);
   Serial.println();
+
     // setup microcontroller
   initBoard();
     // LED test (statup lights)
   initLEDTest();
     // setup comms
   initRF24();
-    // setup EEPROM
-  initEEPROM();
+    // setup blocks including EEPROM
+  initBlocks();
     // setup limp mode
   initLimpMode();
   
 }
 
-
-void clearBlockManagerNumbers(){
-  for (int i = 0; i < NUMBER_OF_BLOCK_MANAGERS; i++){
-    blockNum[i] = 0;
-  }
-  
-}
-
 void oldMainLoop(){
-  // Learn mode switch routine...check if learn == on or off
-  //tempx ++;
-  tempx = tempx + digitalRead(SW1_LEARN_BLKS_PIN);       // read the input pin
-  if ((tempx > 0) && (hours == 0) && (minutes < LEARN_TIMEOUT)){   // only allow learn blocks function in first 2 minutes after power applied
-    if (tempx > 5){
-      tempx = 10;
-      if (minutes < 1){
-        LEARNBLOCKS = true;    // turn on first minute, allow to be turned off after that for time or full EE
-      }
-      if (LearnBlockSwitch == true){
-        blockNum[0] = blockNum[1] = blockNum[2] = blockNum[3] = blockNum[4] = blockNum[5] = blockNum[6] = blockNum[7] = blockNum[8] = blockNum[9] = 0;
-        if (NUMBER_OF_BLOCK_MANAGERS > 10){
-          blockNum[10] = blockNum[11] = blockNum[12] = blockNum[13] = blockNum[14] = blockNum[15] = blockNum[16] = blockNum[17] = blockNum[18] = blockNum[19] = 0;
-        }
-        for (tempx = 0; tempx < NUMBER_OF_BLOCK_MANAGERS; tempx++){
-          Serial.print(" ZERO Block Addr: "); Serial.print(tempx+1); Serial.print(" with the value: ");  Serial.println(blockNum[tempx]);
-          //blockNum[tempx] = 0;  // first time through, zero all block array locations, so they can be populated by the learn blocks feature
-        }
-        LearnBlockSwitch = false ; 
-      }
-    }
-    else if (seconds > 55){
-      tempx = 0;     // if switch is not pressed, 0 out var after 5 seconds
-    }
-  }
-  else{
-    LEARNBLOCKS = false;
-  }
-
-  if (VerbosePrintSUPERDATA){
-    Serial.println();
-    Serial.print("    Learn Blocks is ON/OFF: ");  Serial.println(LEARNBLOCKS);
-    Serial.println("  These Block numbers populate these memory locations: ");
-    Serial.print("EEprom location 0 =  "); Serial.print("Block Addr "); Serial.println(blockNum[0]);
-    Serial.print("EEprom location 1 =  "); Serial.print("Block Addr "); Serial.println(blockNum[1]);
-    Serial.print("EEprom location 2 =  "); Serial.print("Block Addr "); Serial.println(blockNum[2]);
-    Serial.print("EEprom location 3 =  "); Serial.print("Block Addr "); Serial.println(blockNum[3]);
-    Serial.print("EEprom location 4 =  "); Serial.print("Block Addr "); Serial.println(blockNum[4]);
-    Serial.print("EEprom location 5 =  "); Serial.print("Block Addr "); Serial.println(blockNum[5]);
-    Serial.print("EEprom location 6 =  "); Serial.print("Block Addr "); Serial.println(blockNum[6]);
-    Serial.print("EEprom location 7 =  "); Serial.print("Block Addr "); Serial.println(blockNum[7]);
-    Serial.print("EEprom location 8 =  "); Serial.print("Block Addr "); Serial.println(blockNum[8]);
-    Serial.print("EEprom location 9 =  "); Serial.print("Block Addr ");Serial.println(blockNum[9]);
-    Serial.print("EEprom location 10 =  "); Serial.print("Block Addr ");Serial.println(blockNum[10]);
-    Serial.print("EEprom location 11 =  "); Serial.print("Block Addr ");Serial.println(blockNum[11]);
-    Serial.print("EEprom location 12 =  "); Serial.print("Block Addr ");Serial.println(blockNum[12]);
-    Serial.print("EEprom location 13 =  "); Serial.print("Block Addr ");Serial.println(blockNum[13]);
-    Serial.print("EEprom location 14 =  "); Serial.print("Block Addr ");Serial.println(blockNum[14]);
-    Serial.print("EEprom location 15 =  "); Serial.print("Block Addr ");Serial.println(blockNum[15]);
-    Serial.print("EEprom location 16 =  "); Serial.print("Block Addr ");Serial.println(blockNum[16]);
-    Serial.print("EEprom location 17 =  "); Serial.print("Block Addr ");Serial.println(blockNum[17]);
-    Serial.print("EEprom location 18 =  "); Serial.print("Block Addr ");Serial.println(blockNum[18]);
-    Serial.print("EEprom location 19 =  "); Serial.print("Block Addr ");Serial.println(blockNum[19]);
-
-    Serial.println();
-  //}
-
-  byte tempbl = 0  ;
-  //byte TWO_MINUTES = 30;      // 240 seconds (4 min)
-  byte TWO_MINUTES = 120;      // 120 seconds (2 min)
-  //bool Disconnected_Block;   // start with no fault
-  
-  //if (VerbosePrintSUPERDATA){
-    Serial.println("  These Block numbers contain these timeout values: ");
-    while(tempbl < NUMBER_OF_BLOCK_MANAGERS){
-      Serial.print("Block: "); Serial.print(blockNum[tempbl]); Serial.print(" = "); Serial.println(Block_Comm_Timer[tempbl]);
-      //tempbl++;
-      // run comm disconnect timer on all blocks here - count to "TWO_MINUTES" and stop
-      if (Comm_Flag){
-        if(Block_Comm_Timer[tempbl] < COMM_TIMEOUT){
-          Block_Comm_Timer[tempbl] ++;     // run timer here, gets zero'd in comm routine
-        }
-        if(Block_Comm_Timer[tempbl] >= TWO_MINUTES){
-          Disconnected_Block = true;                       //  yes at least one block is disconnected
-          Disconnected_BlockNum = blockNum[tempbl];
-        }
-      }
-      tempbl++;
-    }
-    Serial.println();
-    if(Disconnected_Block){
-      Serial.print("Block: "); Serial.print(Disconnected_BlockNum); Serial.print(" = "); Serial.println("DISCONNECTED");
-    }
-    Serial.println();
-  //}
-
-  bool Tempdisc = false;
-  tempbl = 0;
-  // Now check all blocks for comms in "TWO_MINUTES", when timers are reset, clear Disconnect switches
-  while (tempbl < NUMBER_OF_BLOCK_MANAGERS){
-    if (Block_Comm_Timer[tempbl] > TWO_MINUTES){
-      Tempdisc = true;                       //  yes at least one block is disconnected
-      //if (VerbosePrintSUPERDATA){ 
-       Serial.print("Block DISCONNECT.... ");Serial.println("Block DISCONNECT");}
-      //}
-      tempbl++;
-    }
-    
-    if(Tempdisc == false){
-      Disconnected_Block = false;                       //  no block is disconnected
-      Disconnected_BlockNum = 0;
-      //if (VerbosePrintSUPERDATA){
-        Serial.print("All Blocks connected....");
-        Serial.println("All Blocks connected");
-    }
-  }
-
-  // Write new learned block values to EEPROM
-  // start writing and reading from the first byte (address 0) of the EEPROM
-  int EE_address = 0;
-  byte EE_value;
-
-  //if ((LEARNBLOCKS == ON) && (blockNum[0]) )   // Make sure we are in learn mode and all blocks are written
-  if ((LEARNBLOCKS == true) && (seconds == 0))   // Write EE once/sec when we are in learn mode
-  {
-    for (EE_address = 0; EE_address < 10; EE_address++)
-    {
-      EEPROM.write(EE_address, blockNum[EE_address]);
-      EE_value = EEPROM.read(EE_address);
-      Serial.print("Once/min save Block#: "); Serial.print(EE_value); Serial.print("to this EEprom address:  "); Serial.println(EE_address);
-      Serial.print("Once/min save Block#: "); Serial.print(EE_value); Serial.print("to this EEprom address:  "); Serial.println(EE_address);
-
-    }
-    if (blockNum[0]) LEARNBLOCKS = false;   // if last block is saved to EE, turn off Learn blocks
-  }
-
-  if (LEARNBLOCKS == true)     // turn on RED leds
-  {
-    digitalWrite(LED2_RED_PIN, HIGH);  //on
-    digitalWrite(LED1_RED_PIN, HIGH);  //on
-  }
-  else    // turn off red leds unle3ss
-  {
-    if (blockNum[0] == 0)
-    {
-      digitalWrite(LED2_RED_PIN, HIGH);  // turn on LED2=RED if all Blocks not programmed
-      digitalWrite(LED1_RED_PIN, LOW);
-    }
-    else
-    {
-      digitalWrite(LED2_RED_PIN, LOW);  //off
-      digitalWrite(LED1_RED_PIN, LOW);  //off
-    }
-  }
-  // measure ambient NTC - start with all LEDs red. If NTC gets shorted, make them green
-  //          digitalWrite(LED1_RED_PIN,HIGH);
-  //          digitalWrite(LED2_RED_PIN,HIGH);
-  float datSum = 0;  // reset our accumulated sum of input values to zero
-  long n = 0;            // count of how many readings so far
-  double x1 = 0;
-
-  for (int i = 0; i < SAMPLES; i++) {
-    x1 = analogRead(SUPERVISOR_TEMP_PIN);
-    if ((i < 10 ) || (i > 150)) goto throwaway_a;  // throw away the first 10 and last 50 samples
-    datSum += x1;
-    n++;
-throwaway_a:  ;
-  } //end ntc loop
-
-
-  float datAvg = (datSum) / n;    // find the mean
-  int Tambient = datAvg;      // save ambient
-
-  if (Print_Flag){
-      Serial.print(SUPERVISOR_TEMP_PIN);  Serial.print(" :");
-      Serial.print("  NTC ambient avg value: ");     Serial.print(Tambient);  Serial.println ();
-      if (datAvg < 100)
-      {
-        Serial.print("NTC possibly shorted ");    Serial.println ();
-      }
-  }
   
   // measure charge current input
   datSum = 0;  // reset our accumulated sum of input values to zero
@@ -1541,7 +1634,7 @@ throwaway_c:  ;
   }
 
 
-  manageChargerAnalog();
+  //manageChargerAnalog();
   
 
   // Average SOCv over minutes (improvement) - Jul 12, 2017
@@ -1765,7 +1858,7 @@ badcomm:
            }
            This_Block_Saved = true;
            // zero comm timer for this block
-           Block_Comm_Timer[i] = 0;
+           blockCommTimer[i] = 0;
           }
         }
         // if not saved, save BLOCK to zero'd location
@@ -1794,7 +1887,7 @@ badcomm:
             }
             This_Block_Saved = true;
             // zero comm timer for this block
-            Block_Comm_Timer[x-1] = 0;
+            blockCommTimer[x-1] = 0;
           }
           x--;
         }
@@ -1915,10 +2008,12 @@ exitsaveblock:
 // ****************************************************************************APPLICATION MAIN
 void loop() {
   watchdogReset();  // reset the watchdog timer (times out in 1 sec so make sure loop is under about 500-600msec)
-
-  statusMode();
  
   updateTimeKeeping();
+
+  // update blocks
+
+  updateSupervisorPCBTemp();
   
   oldMainLoop();
 
@@ -1926,5 +2021,9 @@ void loop() {
   if(heartBeatTimer < heartBeat){
     heartBeatTimer = 0;
     // serial output
+    statusMode();
+
+    // status Supervisor PCB info
+    // status Blocks
   }
 }
